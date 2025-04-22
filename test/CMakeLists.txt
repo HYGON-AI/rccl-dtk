@@ -8,6 +8,16 @@ if(BUILD_TESTS)
   option(OPENMP_TESTS_ENABLED "Enable OpenMP for unit tests" OFF)
   
   message("Building rccl unit tests (Installed in /test/rccl-UnitTests)")
+  if (GTEST_PATH)
+    set(GTEST_ROOT ${GTEST_PATH})
+  endif()
+  if (BUILD_TESTS_ONLY)
+    add_compile_options(-std=c++14)
+    find_package(GTest 1.11)
+    find_package(hip REQUIRED)
+    find_package(ROCM REQUIRED)
+    include(ROCMInstallTargets)
+  endif()
 
   find_package(hsa-runtime64 PATHS /opt/rocm )
   if(${hsa-runtime64_FOUND})
@@ -61,8 +71,14 @@ if(BUILD_TESTS)
 
   ## Set rccl-UnitTests include directories
   target_include_directories(rccl-UnitTests PRIVATE ${ROCM_PATH} ${GTEST_INCLUDE_DIRS})
-  target_include_directories(rccl-UnitTests PRIVATE ${PROJECT_BINARY_DIR}/include)            # for generated rccl.h header
-  target_include_directories(rccl-UnitTests PRIVATE ${PROJECT_BINARY_DIR}/hipify/src/include) # for rccl_bfloat16.h
+  if (BUILD_TESTS_ONLY)
+    target_compile_options(rccl-UnitTests PRIVATE -Wno-return-type)
+    target_include_directories(rccl-UnitTests PRIVATE ${PROJECT_BINARY_DIR}/../../build/include)        # for generated rccl.h header
+    target_include_directories(rccl-UnitTests PRIVATE ${PROJECT_BINARY_DIR}/../../build/hipify/src/include) # for rccl_bfloat16.h
+  else()
+    target_include_directories(rccl-UnitTests PRIVATE ${PROJECT_BINARY_DIR}/include)        # for generated rccl.h header
+    target_include_directories(rccl-UnitTests PRIVATE ${PROJECT_BINARY_DIR}/hipify/src/include) # for rccl_bfloat16.h
+  endif()
 
   ## Set rccl-UnitTests compile definitions
   if(LL128_ENABLED)
@@ -89,7 +105,11 @@ if(BUILD_TESTS)
   # rccl-UnitTests using static library of rccl requires passing rccl
   # through -l and -L instead of command line input.
   if(BUILD_SHARED_LIBS)
-    target_link_libraries(rccl-UnitTests PRIVATE rccl)
+    if (BUILD_TESTS_ONLY)
+      target_link_libraries(rccl-UnitTests PRIVATE ${PROJECT_BINARY_DIR}/../../build/librccl.so)
+    else()
+      target_link_libraries(rccl-UnitTests PRIVATE rccl)
+    endif()
     set_property(TARGET rccl-UnitTests PROPERTY INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib;${ROCM_PATH}/lib;${CMAKE_BINARY_DIR}")
   else()
     add_dependencies(rccl-UnitTests rccl)

@@ -44,7 +44,7 @@ static int is_wsl2 = -1;
   }                                  \
 } while(false)
 
-RCCL_PARAM(UseRocmSmiLib, "USE_ROCM_SMI_LIB", 0); // Opt-in environment variable for enabling using rocm_smi_lib instead of internal code
+RCCL_PARAM(UseRocmSmiLib, "USE_ROCM_SMI_LIB", 1); // Opt-in environment variable for enabling using rocm_smi_lib instead of internal code
 
 ncclResult_t rocm_smi_init() {
   if (__atomic_load_n(&is_wsl2, __ATOMIC_ACQUIRE) == -1)

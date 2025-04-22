@@ -20,16 +20,16 @@ project(rccl CXX)
 #==================================================================================================
 option(BUILD_ADDRESS_SANITIZER                 "Enable address sanitizer"                      OFF)
 option(BUILD_BFD                               "Enable custom backtrace (if bfd.h exists)"     OFF)
-option(BUILD_FILE_REORG_BACKWARD_COMPATIBILITY "File/folder reorg with backward compatibility" OFF)
+option(BUILD_FILE_REORG_BACKWARD_COMPATIBILITY "File/folder reorg with backward compatibility" ON)
 option(BUILD_LOCAL_GPU_TARGET_ONLY             "Build only for GPUs detected on this machine"  OFF)
 option(BUILD_SHARED_LIBS                       "Build as shared library"                       ON)
 option(BUILD_TESTS                             "Build unit test programs"                      OFF)
 option(COLLTRACE                               "Collective Trace Option"                       ON)
-option(ENABLE_MSCCL_KERNEL                     "Enable MSCCL while compiling"                  ON)
-option(ENABLE_MSCCLPP                          "Enable MSCCL++"                                ON)
+option(ENABLE_MSCCL_KERNEL                     "Enable MSCCL while compiling"                  OFF)
+option(ENABLE_MSCCLPP                          "Enable MSCCL++"                                OFF)
 option(ENABLE_IFC                              "Enable indirect function call"                 OFF)
 option(INSTALL_DEPENDENCIES                    "Force install dependencies"                    OFF)
-option(ROCTX                                   "Enable ROCTX"                                  ON)
+option(ROCTX                                   "Enable ROCTX"                                  OFF)
 option(PROFILE                                 "Enable profiling"                              OFF)
 option(TIMETRACE                               "Enable time-trace during compilation"          OFF)
 option(TRACE                                   "Enable additional tracing"                     OFF)
@@ -38,15 +38,9 @@ option(TRACE                                   "Enable additional tracing"      
 #==================================================================================================
 set(DEFAULT_GPUS
       gfx906
-      gfx908
-      gfx90a
-      gfx942
-      gfx1030
-      gfx1100
-      gfx1101
-      gfx1102
-      gfx1200
-      gfx1201)
+      gfx926
+      gfx928
+      gfx936)
 
 # Load CMake modules
 #==================================================================================================
@@ -105,12 +99,11 @@ include(cmake/Dependencies.cmake) # Reloading to use desired COMPILING_TARGETS i
 #==================================================================================================
 if(NOT DEFINED ROCM_PATH)
   # Guess default location
-  set(ROCM_PATH "/opt/rocm")
+  set(ROCM_PATH ENV{ROCM_PATH})
   message(WARNING "Unable to find ROCM_PATH: Falling back to ${ROCM_PATH}")
 else()
   message(STATUS "ROCM_PATH found: ${ROCM_PATH}")
 endif()
-set(ENV{ROCM_PATH} ${ROCM_PATH})
 
 if("${CMAKE_CXX_COMPILER}" MATCHES ".*amdclang\\+\\+")
   message(STATUS "Compiling with amdclang++")
@@ -133,13 +126,16 @@ endif()
 
 # Set CMAKE flags
 #==================================================================================================
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mllvm -disable-speculative-loop-unswitch=true")
 set(CMAKE_INSTALL_PREFIX "${ROCM_PATH}" CACHE PATH "")
 set(CMAKE_CXX_STANDARD   14)   # We use C++14 features, this will add compile option: -std=c++14
 set(CMAKE_CXX_EXTENSIONS OFF)  # Without this line, it will add -std=gnu++14 instead, which has some issues.
-list(APPEND CMAKE_PREFIX_PATH  # Add ROCM_PATH to CMake search paths (for finding HIP / HSA
-            ${ROCM_PATH}
-            ${ROCM_PATH}/hip
-            ${ROCM_PATH}/llvm)
+if(ROCM_PATH)
+  list(APPEND CMAKE_PREFIX_PATH  # Add ROCM_PATH to CMake search paths (for finding HIP / HSA
+              ${ROCM_PATH}
+              ${ROCM_PATH}/hip
+              ${ROCM_PATH}/llvm)
+endif()
 
 # Check for required dependencies
 #==================================================================================================
@@ -171,25 +167,28 @@ execute_process(
   OUTPUT_VARIABLE hip_version_string)
 message(STATUS "${COMPILER_EXE_NAME} HIP version:    ${hip_version_string}")
 
-## Check for ROCm version
-execute_process(
-  COMMAND         bash "-c" "cat ${ROCM_PATH}/.info/version"
-  OUTPUT_VARIABLE rocm_version_string
-)
-string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)" rocm_version_matches ${rocm_version_string})
-if (rocm_version_matches)
-    set(ROCM_MAJOR_VERSION ${CMAKE_MATCH_1})
-    set(ROCM_MINOR_VERSION ${CMAKE_MATCH_2})
-    set(ROCM_PATCH_VERSION ${CMAKE_MATCH_3})
+# Determine version from {ROCM_PATH}/include/rocm_version.h
+if(EXISTS "$ENV{ROCM_PATH}/include/rocm_version.h")
+  file(READ "$ENV{ROCM_PATH}/include/rocm_version.h" ROCM_VERSION_CONTENTS)
+  string(REGEX MATCH "#define[ \t]+ROCM_VERSION_MAJOR[ \t]+([0-9]+)" _ "${ROCM_VERSION_CONTENTS}")
+  if (CMAKE_MATCH_COUNT EQUAL 1)
+    set(ROCM_VERSION_MAJOR ${CMAKE_MATCH_1})
+  endif()
+  string(REGEX MATCH "#define[ \t]+ROCM_VERSION_MINOR[ \t]+([0-9]+)" _ "${ROCM_VERSION_CONTENTS}")
+  if (CMAKE_MATCH_COUNT EQUAL 1)
+    set(ROCM_VERSION_MINOR ${CMAKE_MATCH_1})
+  endif()
+  string(REGEX MATCH "#define[ \t]+ROCM_VERSION_PATCH[ \t]+([0-9]+)" _ "${ROCM_VERSION_CONTENTS}")
+  if (CMAKE_MATCH_COUNT EQUAL 1)
+    set(ROCM_VERSION_PATCH ${CMAKE_MATCH_1})
+  endif()
 
-    message(STATUS "ROCm version: ${ROCM_MAJOR_VERSION}.${ROCM_MINOR_VERSION}.${ROCM_PATCH_VERSION}")
-
-    # Convert the version components to int for comparison
-    math(EXPR ROCM_VERSION "(10000 * ${ROCM_MAJOR_VERSION}) + (100 * ${ROCM_MINOR_VERSION}) + ${ROCM_PATCH_VERSION}")
-    add_definitions("-DROCM_VERSION=${ROCM_VERSION}")
+  math(EXPR ROCM_VERSION "(10000 * ${ROCM_VERSION_MAJOR}) + (100 * ${ROCM_VERSION_MINOR}) + ${ROCM_VERSION_PATCH}")
+  add_definitions("-DROCM_VERSION=${ROCM_VERSION}")
 else()
-    message(WARNING "Failed to extract ROCm version.")
+  message(WARNING "Can not get ROCM_VERSION from $ENV{ROCM_PATH}/include/rocm_version.h!")
 endif()
+message("-- ROCM_VERSION: ${ROCM_VERSION_MAJOR}.${ROCM_VERSION_MINOR}.${ROCM_VERSION_PATCH}")
 
 ### Required for checking HIP device symbols when building with amdclang++
 set(CMAKE_REQUIRED_LIBRARIES hip::device)
@@ -216,7 +215,7 @@ else()
 endif()
 
 ## Check for LL128 support
-if(${hip_version_string} VERSION_GREATER_EQUAL "6.1.33591")
+if(0)
   set(LL128_ENABLED ON)
   message(STATUS "RCCL LL128 protocol enabled")
 else()
@@ -315,7 +314,11 @@ if (ENABLE_MSCCLPP AND ROCM_VERSION VERSION_LESS "60200")
   set(ENABLE_MSCCLPP OFF)
   message(WARNING "MSCCL++ integration only supported on ROCm 6.2 or greater; disabling MSCCL++ build")
 endif()
-cmake_host_system_information(RESULT HOST_OS_ID QUERY DISTRIB_ID)
+execute_process(
+  COMMAND bash -c "grep '^ID=' /etc/os-release | cut -d'=' -f2 | cut -d'\"' -f2"
+  OUTPUT_VARIABLE HOST_OS_ID
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
 if (ENABLE_MSCCLPP AND NOT(${HOST_OS_ID} STREQUAL "ubuntu" OR ${HOST_OS_ID} STREQUAL "centos"))
   set(ENABLE_MSCCLPP OFF)
   message(WARNING "MSCCL++ integration not supported on this OS (${HOST_OS_ID}); disabling MSCCL++ build")
@@ -728,7 +731,7 @@ if(${HIP_CONTIGUOUS_MEMORY})
 else()
   message(STATUS "HIP_CONTIGUOUS_MEMORY disabled")
 endif()
-if(${hip_version_string} VERSION_GREATER_EQUAL "5.7.31920")
+if(0)
   target_compile_definitions(rccl PRIVATE HIP_UNCACHED_MEMORY)
   message(STATUS "HIP_UNCACHED_MEMORY enabled")
 else()
@@ -770,6 +773,7 @@ endif()
 if (HAVE_PARALLEL_JOBS)
   target_compile_options(rccl PRIVATE -parallel-jobs=12)
 endif()
+target_compile_options(rccl PRIVATE -Wno-return-type)
 target_compile_options(rccl PRIVATE -Werror=uninitialized -Werror=sometimes-uninitialized)
 target_compile_options(rccl PRIVATE -Wno-format-nonliteral)
 target_compile_options(rccl PRIVATE -fgpu-rdc)               # Generate relocatable device code (required for extern __shared__)
@@ -793,7 +797,7 @@ endif()
 ## Set RCCL linked library directories
 target_link_directories(rccl PRIVATE ${ROCM_SMI_LIB_DIR})
 
-if (ROCM_VERSION VERSION_GREATER_EQUAL "60100")
+if (0)
     option(RCCL_ROCPROFILER_REGISTER "Enable rocprofiler-register support" ON)
 else()
     if(RCCL_ROCPROFILER_REGISTER)
