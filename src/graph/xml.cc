@@ -1044,7 +1044,7 @@ ncclResult_t ncclTopoTrimXmlRec(struct ncclXmlNode* node, int* keep) {
       *keep += k;
     }
     if (*keep == 0 && // Trim PCI switches or CPU with no used GPU/NIC under them.
-        (strcmp(node->name, "pci") == 0 || strcmp(node->name, "cpu") == 0)) {
+        (strcmp(node->name, "pci") == 0 || strcmp(node->name, "cpu") == 0 || strcmp(node->name, "net") == 0)) {
       NCCLCHECK(xmlRemoveNode(node));
     }
   }
