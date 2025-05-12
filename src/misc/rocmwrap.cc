@@ -32,10 +32,14 @@ bool ncclCudaLaunchBlocking = false;
 static pthread_once_t initOnceControl = PTHREAD_ONCE_INIT;
 static ncclResult_t initResult;
 
+bool isEnvEnabled(const char* envName) {
+  char* val = getenv(envName);
+  return val != nullptr && val[0] != '\0' && !(val[0] == '0' && val[1] == '\0');
+}
+
 static void initOnceFunc() {
   do {
-    char* val = getenv("CUDA_LAUNCH_BLOCKING");
-    ncclCudaLaunchBlocking = val!=nullptr && val[0]!=0 && !(val[0]=='0' && val[1]==0);
+    ncclCudaLaunchBlocking = (isEnvEnabled("GPU_FLUSH_ON_EXECUTION") | isEnvEnabled("CUDA_LAUNCH_BLOCKING") | isEnvEnabled("HIP_LAUNCH_BLOCKING"));
   } while (0);
 
   bool dmaBufSupport = false;
