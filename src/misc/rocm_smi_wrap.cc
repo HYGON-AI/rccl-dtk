@@ -201,3 +201,25 @@ ncclResult_t rocm_smi_getLinkInfo(int srcIndex, int dstIndex, RSMI_IO_LINK_TYPE*
 
   return ncclSuccess;
 }
+
+#ifdef RSMI_SUPPORT_XHCL_TOPO
+ncclResult_t rocm_smi_dev_xhcl_link_number_get(uint32_t deviceIndex, uint32_t *linkNum) {
+  ROCMSMICHECK(rsmi_dev_xhcl_link_number_get(deviceIndex, linkNum));
+  return ncclSuccess;
+}
+
+ncclResult_t rocm_smi_dev_xhcl_link_state_get(uint32_t deviceIndex, uint32_t linkId, uint32_t *linkState) {
+  ROCMSMICHECK(rsmi_dev_xhcl_link_state_get(deviceIndex, linkId, linkState));
+  return ncclSuccess;
+}
+
+ncclResult_t rocm_smi_dev_xhcl_link_remote_bdfid_get(uint32_t deviceIndex, uint32_t linkId, uint64_t *pciBusId) {
+  ROCMSMICHECK(rsmi_dev_xhcl_link_remote_bdfid_get(deviceIndex, linkId, pciBusId));
+  return ncclSuccess;
+}
+
+ncclResult_t rocm_smi_dev_xhcl_link_remote_dev_type_get(uint32_t deviceIndex, uint32_t linkId, RSMI_XHCL_LINK_TYPE *devType) {
+  ROCMSMICHECK(rsmi_dev_xhcl_link_remote_dev_type_get(deviceIndex, linkId, devType));
+  return ncclSuccess;
+}
+#endif

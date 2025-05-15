@@ -33,6 +33,7 @@ option(ROCTX                                   "Enable ROCTX"                   
 option(PROFILE                                 "Enable profiling"                              OFF)
 option(TIMETRACE                               "Enable time-trace during compilation"          OFF)
 option(TRACE                                   "Enable additional tracing"                     OFF)
+option(SUPPORT_XHCL_TOPO                       "Support Detect Hyswitch"                       ON)
 
 # Default GPU architectures to build
 #==================================================================================================
@@ -792,6 +793,9 @@ if(BUILD_ADDRESS_SANITIZER)
 endif()
 if(TIMETRACE)
   target_compile_options(rccl PRIVATE -ftime-trace)
+endif()
+if (SUPPORT_XHCL_TOPO)
+  target_compile_definitions(rccl PRIVATE RSMI_SUPPORT_XHCL_TOPO)
 endif()
 
 ## Set RCCL linked library directories

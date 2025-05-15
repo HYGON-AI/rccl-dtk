@@ -797,6 +797,41 @@ ncclResult_t ncclTopoGetXmlFromGpu(struct ncclXmlNode* pciNode, uint32_t rocmDev
 #endif
   if (nvlNode == NULL) {
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
+#ifdef RSMI_SUPPORT_XHCL_TOPO
+    uint32_t linkNum = 0;
+    uint32_t linkState = 0;
+    uint64_t pciBdf = 0;
+    RSMI_XHCL_LINK_TYPE devType;
+
+    NCCLCHECK(rocm_smi_dev_xhcl_link_number_get(rocmDev, &linkNum));
+    for (int j = 0; j < linkNum; j++) {
+      NCCLCHECK(rocm_smi_dev_xhcl_link_state_get(rocmDev, j, &linkState));
+      if (linkState == 0) {
+        continue;
+      }
+
+      NCCLCHECK(rocm_smi_dev_xhcl_link_remote_dev_type_get(rocmDev, j, &devType));
+      NCCLCHECK(rocm_smi_dev_xhcl_link_remote_bdfid_get(rocmDev, j, &pciBdf));
+      char busIdStr[] = "00000000:00:00.0";
+      snprintf(busIdStr, sizeof(busIdStr), "%04lx:%02lx:%02lx.%01lx", (pciBdf) >> 32, (pciBdf & 0xff00) >> 8, (pciBdf & 0xf8) >> 3, (pciBdf & 0x7));
+      char lowerId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
+      for (int c=0; c<NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE; c++) {
+        lowerId[c] = tolower(busIdStr[c]);
+        if (busIdStr[c] == 0) break;
+      }
+      NCCLCHECK(xmlGetSubKv(gpuNode, "xgmi", &nvlNode, "target", lowerId));
+      if (nvlNode == NULL) {
+        NCCLCHECK(xmlAddNode(xml, gpuNode, "xgmi", &nvlNode));
+        NCCLCHECK(xmlSetAttr(nvlNode, "target", lowerId));
+        NCCLCHECK(xmlSetAttrInt(nvlNode, "count", 1));
+      } else {
+        int count;
+        NCCLCHECK(xmlGetAttrInt(nvlNode, "count", &count));
+        NCCLCHECK(xmlSetAttrInt(nvlNode, "count", count+1));
+      }
+      // INFO(NCCL_INIT, "-hcugon- hennry rocmDev:%d linkNum:%d link:%d linkState:%d remote type:%d bdf:0x%lx", rocmDev, linkNum, j, linkState, devType, pciBdf);
+    }
+#else
     const char* busId;
     NCCLCHECK(xmlGetAttr(pciNode, "busid", &busId));
     uint32_t deviceCnt;
@@ -824,6 +859,7 @@ ncclResult_t ncclTopoGetXmlFromGpu(struct ncclXmlNode* pciNode, uint32_t rocmDev
         }
       }
     }
+#endif
 #else
     // NVML NVLink detection
     int maxNvLinks = (sm < 60) ? 0 : (sm < 70) ? 4 : (sm < 80) ? 6 : (sm < 90) ? 12 : 18;
