@@ -1129,10 +1129,6 @@ search:
     if (globalTimeout < 0 && graph->nChannels) goto done;
 
     // Try a simpler tree
-    if (ccMin >= 90 && tmpGraph.pattern == NCCL_TOPO_PATTERN_BALANCED_TREE) {
-      tmpGraph.pattern = NCCL_TOPO_PATTERN_TREE;
-      goto search;
-    }
     tmpGraph.pattern = graph->pattern;
 
     int maxTypeIntra = system->nodes[NET].count > 0 ? tmpGraph.typeInter : PATH_SYS;
