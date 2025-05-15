@@ -255,11 +255,12 @@ ncclResult_t ncclCudaMemcpy(T* dst, T* src, size_t nelem) {
   cudaStreamCaptureMode mode = cudaStreamCaptureModeRelaxed;
   CUDACHECK(cudaThreadExchangeStreamCaptureMode(&mode));
   // Need a side stream so as not to interfere with graph capture.
-  cudaStream_t stream;
-  CUDACHECKGOTO(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), result, finish);
-  NCCLCHECKGOTO(ncclCudaMemcpyAsync(dst, src, nelem, stream), result, finish);
-  CUDACHECKGOTO(cudaStreamSynchronize(stream), result, finish);
-  CUDACHECKGOTO(cudaStreamDestroy(stream), result, finish);
+  // cudaStream_t stream;
+  // CUDACHECKGOTO(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), result, finish);
+  // NCCLCHECKGOTO(ncclCudaMemcpyAsync(dst, src, nelem, stream), result, finish);
+  // CUDACHECKGOTO(cudaStreamSynchronize(stream), result, finish);
+  // CUDACHECKGOTO(cudaStreamDestroy(stream), result, finish);
+  memcpy(dst, src, nelem*ncclSizeOfT<T>());
 finish:
   CUDACHECK(cudaThreadExchangeStreamCaptureMode(&mode));
   return result;
