@@ -678,7 +678,7 @@ ncclResult_t ncclTopoGetXmlFromSys(struct ncclXmlNode* pciNode, struct ncclXml* 
             NCCLCHECK(xmlGetSubKv(topNode, "cpu", &parent, "numaid", numaIdStr));
             if (parent == NULL) {
               NCCLCHECK(xmlAddNode(xml, topNode, "cpu", &parent));
-              NCCLCHECK(xmlSetAttrLong(parent, "host_hash", getHostHash()));
+              // NCCLCHECK(xmlSetAttrLong(parent, "host_hash", getHostHash()));
               NCCLCHECK(xmlSetAttr(parent, "numaid", numaIdStr));
             }
           } else if (slashCount == 2) {
@@ -704,7 +704,7 @@ ncclResult_t ncclTopoGetXmlFromSys(struct ncclXmlNode* pciNode, struct ncclXml* 
         struct ncclXmlNode* topNode;
         NCCLCHECK(xmlFindTag(xml, "system", &topNode));
         NCCLCHECK(xmlAddNode(xml, topNode, "cpu", &parent));
-        NCCLCHECK(xmlSetAttrLong(parent, "host_hash", getHostHash()));
+        // NCCLCHECK(xmlSetAttrLong(parent, "host_hash", getHostHash()));
         NCCLCHECK(xmlSetAttr(parent, "numaid", "-1"));
         NCCLCHECK(ncclTopoGetXmlFromCpu(parent, xml));
       }
