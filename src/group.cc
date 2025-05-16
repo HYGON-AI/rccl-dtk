@@ -288,9 +288,10 @@ static ncclResult_t doLaunches(struct ncclComm* head) {
   do {
     struct ncclComm* comm = cliqueHead;
     bool capturingYes = false, capturingNo = false;
+    struct ncclComm* nextComm = comm->groupNext[ncclGroupTaskTypeCollective];
     do {
       (ncclCudaGraphValid(comm->planner.capturingGraph) ? capturingYes : capturingNo) = true;
-      CUDACHECKGOTO(cudaSetDevice(comm->cudaDev), result, failure);
+      if (nextComm != nullptr) CUDACHECKGOTO(cudaSetDevice(comm->cudaDev), result, failure);
       NCCLCHECKGOTO(ncclLaunchPrepare(comm), result, failure);
       if (useBarrier) ncclCommIntraBarrierIn(comm, 1);
       comm = comm->groupNext[ncclGroupTaskTypeCollective];
@@ -322,7 +323,7 @@ static ncclResult_t doLaunches(struct ncclComm* head) {
           struct ncclKernelPlan* plan = comm->planner.unlaunchedPlansHead;
           if (plan != nullptr) {
             comm->planner.unlaunchedPlansHead = plan->next;
-            CUDACHECKGOTO(cudaSetDevice(comm->cudaDev), result, failure);
+            if (nextComm != nullptr) CUDACHECKGOTO(cudaSetDevice(comm->cudaDev), result, failure);
             NCCLCHECKGOTO(ncclLaunchKernelBefore_NoUncapturedCuda(comm, plan), result, failure);
             NCCLCHECKGOTO(ncclLaunchKernel(comm, plan), result, failure);
           }
@@ -332,7 +333,7 @@ static ncclResult_t doLaunches(struct ncclComm* head) {
             NCCLCHECKGOTO(ncclLaunchKernelAfter_NoCuda(comm, plan), result, failure);
           }
         } else { // Final round.
-          CUDACHECKGOTO(cudaSetDevice(comm->cudaDev), result, failure);
+          if (nextComm != nullptr) CUDACHECKGOTO(cudaSetDevice(comm->cudaDev), result, failure);
           NCCLCHECKGOTO(ncclLaunchFinish(comm), result, failure);
         }
         comm = next;
@@ -475,12 +476,20 @@ fail:
 }
 
 static ncclResult_t groupLaunch(struct ncclAsyncJob *job_, ncclSimInfo_t* simInfo = NULL) {
+  int savedDev;
   ncclResult_t ret = ncclSuccess;
   struct ncclGroupJob *gjob = (struct ncclGroupJob*) job_;
   struct ncclComm **groupCommHeadMain = gjob->groupCommHead;
+  struct ncclComm *nextGroupCommHeadMain = nullptr; 
   struct ncclComm *groupCommPreconnectHeadMain = gjob->groupCommPreconnectHead;
   struct ncclIntruQueue<struct ncclAsyncJob, &ncclAsyncJob::next> *asyncJobsMain = &gjob->asyncJobs;
   bool *groupAbortFlag = &gjob->abortFlag;
+  CUDACHECKGOTO(cudaGetDevice(&savedDev), ret, fail);
+  for (int type = 0; type < ncclGroupTaskTypeNum; ++type) { 
+    if (groupCommHeadMain[type]) {
+      nextGroupCommHeadMain = (*groupCommHeadMain)->groupNext[type];
+    }
+  } 
 
   if (!simInfo && groupCommPreconnectHeadMain != nullptr) {
     struct ncclComm* comm = groupCommPreconnectHeadMain;
@@ -552,7 +561,7 @@ static ncclResult_t groupLaunch(struct ncclAsyncJob *job_, ncclSimInfo_t* simInf
         bool algoNeedConnect[NCCL_NUM_ALGORITHMS];
         memset(algoNeedConnect, 0, sizeof(bool) * NCCL_NUM_ALGORITHMS);
 
-        CUDACHECKGOTO(cudaSetDevice(comm->cudaDev), ret, fail);
+        if (nextGroupCommHeadMain != nullptr) CUDACHECKGOTO(cudaSetDevice(comm->cudaDev), ret, fail);
         NCCLCHECKGOTO(ncclPrepareTasks(comm, algoNeedConnect, &needConnect, simInfo), ret, fail);
 
         if (comm->cuMemSupport && needConnect) {
@@ -583,7 +592,7 @@ static ncclResult_t groupLaunch(struct ncclAsyncJob *job_, ncclSimInfo_t* simInf
     // done with all buffer allocation, start registration and enqueue
     comm = groupCommHeadMain[ncclGroupTaskTypeCollective];
     do {
-      CUDACHECKGOTO(cudaSetDevice(comm->cudaDev), ret, fail);
+      if (nextGroupCommHeadMain != nullptr) CUDACHECKGOTO(cudaSetDevice(comm->cudaDev), ret, fail);
       NCCLCHECKGOTO(ncclTasksRegAndEnqueue(comm), ret, fail);
       comm = comm->groupNext[ncclGroupTaskTypeCollective];
     } while (comm);
