@@ -94,6 +94,19 @@ static uint64_t hashUniqueId(ncclUniqueId const &id) {
   return h;
 }
 
+RCCL_PARAM(DebugSleep, "DEBUG_SLEEP", 0);
+void debug_sleep()
+{
+    int sleepSecs = rcclParamDebugSleep();
+    if (sleepSecs != 0)
+    {
+      char hostname[256] = {0};
+      gethostname(hostname, sizeof(hostname));
+      printf("PID %d on %s ready for attach\n", getpid(), hostname);
+      sleep(sleepSecs);
+    }
+}
+
 ncclResult_t commSetUnrollFactor(struct ncclComm* comm) {
   hipDeviceProp_t devProp;
   CUDACHECK(hipGetDeviceProperties(&devProp, comm->cudaDev));
@@ -2180,6 +2193,7 @@ static ncclResult_t ncclCommInitRankDev(ncclComm_t* newcomm, int nranks, ncclUni
     INFO(NCCL_ENV, "NCCL_COMM_ID set by environment to %s", env);
     NCCLCHECKGOTO(bootstrapCreateRoot((struct ncclBootstrapHandle*)&commId, true), res, fail);
   }
+  debug_sleep();
 
   NCCLCHECKGOTO(ncclInit(), res, fail);
   if (ncclDebugLevel > NCCL_LOG_WARN || (ncclDebugLevel != NCCL_LOG_NONE && myrank == 0)) {
