@@ -97,6 +97,19 @@ NCCL_PARAM(NvlsChannels, "NVLS_NCHANNELS", NCCL_CONFIG_UNDEF_INT);
 struct allocationTracker allocTracker[MAX_ALLOC_TRACK_NGPU] = {};
 static ncclResult_t commReclaim(ncclComm_t comm);
 
+RCCL_PARAM(DebugSleep, "DEBUG_SLEEP", 0);
+void debug_sleep()
+{
+    int sleepSecs = rcclParamDebugSleep();
+    if (sleepSecs != 0)
+    {
+      char hostname[256] = {0};
+      gethostname(hostname, sizeof(hostname));
+      printf("PID %d on %s ready for attach\n", getpid(), hostname);
+      sleep(sleepSecs);
+    }
+}
+
 #ifdef ENABLE_MSCCLPP
 size_t std::hash<ncclUniqueId>::operator ()(const ncclUniqueId& uniqueId) const noexcept {
   return (size_t)getHash(uniqueId.internal, NCCL_UNIQUE_ID_BYTES);
@@ -2594,6 +2607,7 @@ static ncclResult_t ncclCommInitRankDev(ncclComm_t* newcomm, int nranks, int nId
   ncclComm_t comm = NULL;
   struct ncclCommInitRankAsyncJob* job = NULL;
   bool launchedJob = false;
+  debug_sleep();
   // first call ncclInit, this will setup the environment
   NCCLCHECKGOTO(ncclInit(), res, fail);
 
