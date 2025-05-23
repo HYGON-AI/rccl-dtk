@@ -2503,6 +2503,32 @@ static struct rcclRomeModel gio16gColumbaModel = {
   .options = "",
 };
 
+static struct rcclRomeModel hygonBWSingleNodeModel = {
+  .ringBase = "0 1 3 2 4 6 5 7"
+};
+
+static struct rcclRomeModel hygonBWMultiNodes8NicModel = {
+  .ringBase ="N0 0 7 6 5 4 3 2 1 N0|"
+             "N1 1 2 3 4 5 6 7 0 N1|"
+             "N2 2 1 0 7 6 5 4 3 N2|"
+             "N3 3 4 5 6 7 0 1 2 N3|"
+             "N4 4 3 2 1 0 7 6 5 N4|"
+             "N5 5 6 7 0 1 2 3 4 N5|"
+             "N6 6 5 4 3 2 1 0 7 N6|"
+             "N7 7 0 1 2 3 4 5 6 N7|"
+};
+
+static struct rcclRomeModel hygonBWMultiNodes9NicModel = {
+  .ringBase ="N1 0 7 6 5 4 3 2 1 N1|"
+             "N2 1 2 3 4 5 6 7 0 N2|"
+             "N3 2 1 0 7 6 5 4 3 N3|"
+             "N4 3 4 5 6 7 0 1 2 N4|"
+             "N5 4 3 2 1 0 7 6 5 N5|"
+             "N6 5 6 7 0 1 2 3 4 N6|"
+             "N7 6 5 4 3 2 1 0 7 N7|"
+             "N8 7 0 1 2 3 4 5 6 N8|"
+};
+
 ncclResult_t parseGIOTopos(struct ncclTopoSystem* system, struct ncclTopoGraph* graph) {
   ncclResult_t r;
   constexpr int NGPUS = 16;
@@ -2545,5 +2571,26 @@ ncclResult_t parseGIOTopos(struct ncclTopoSystem* system, struct ncclTopoGraph* 
   NCCLCHECKGOTO(parseGraph(gio16gColumbaModel.ringBase, system, graph, rdm, NULL, false), r, exit);
 
 exit:
+  return ncclSuccess;
+}
+
+ncclResult_t parseBW(struct ncclTopoSystem* system, struct ncclTopoGraph* graph) {
+  ncclResult_t r;
+  constexpr int NGPUS = 8;
+  const int ngpus = system->nodes[GPU].count;
+  const int ncpus = system->nodes[CPU].count;
+  const int nnets = system->nodes[NET].count;
+
+  if (!IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx936") || ngpus != NGPUS)
+    return ncclSuccess;
+
+  if (system->nHosts == 1){
+    NCCLCHECK(parseGraph(hygonBWSingleNodeModel.ringBase, system, graph, NULL, NULL, false));
+  } else if (nnets == 8 && system->nHosts%2 == 0){
+    NCCLCHECK(parseGraph(hygonBWMultiNodes8NicModel.ringBase, system, graph, NULL, NULL, false));
+  } else if (nnets == 9 && system->nHosts%2 == 0){
+    NCCLCHECK(parseGraph(hygonBWMultiNodes9NicModel.ringBase, system, graph, NULL, NULL, false));
+  }
+
   return ncclSuccess;
 }
