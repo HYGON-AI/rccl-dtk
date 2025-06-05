@@ -1316,7 +1316,7 @@ ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoG
         if (gpu->paths[NET][n].type <= PATH_PXN) {
           if (dev) *dev = netDev;
           if (id) *id = netId;
-          NCCLCHECK(ncclTopoGetIntermediateRank(comm->topo, rank, *dev, proxyRank));
+          NCCLCHECK(ncclTopoGetIntermediateRank(comm->topo, rank, netDev, proxyRank));
         }
       } else if (pxnLevel == 2) {
         // Check which local GPU corresponds to that NIC and see if we can use PXN.
