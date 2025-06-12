@@ -355,6 +355,8 @@ __device__ __forceinline__ void loadWorkBatchToShmem(
       //   src = &global_variable;
       // }
       // memcpy(dst, src, n);
+      char* dst = ncclShmem.workStorage;
+      dst += (workCursor + dstWork)*workSize + packInWork*16;
       if (ncclShmem.args.workStorageType == ncclDevWorkStorageTypeArgs) {
         char* src = (char*)args + (batch.offsetBase + srcWork*workSize + packInWork*16);
         tmp = *(ulong2*)src; // becomes ld.param.v2.u64
@@ -363,8 +365,6 @@ __device__ __forceinline__ void loadWorkBatchToShmem(
         char* src = (char*)ncclShmem.args.workBuf + ((batch.offsetBase + srcWork*workSize + packInWork*16) & ncclShmem.args.workMask);
         tmp = *(ulong2*)src; // becomes ld.v2.u64
       }
-      char* dst = ncclShmem.workStorage;
-      dst += (workCursor + dstWork)*workSize + packInWork*16;
       *(ulong2*)dst = tmp;
     }
     workCursor += nWorks;
