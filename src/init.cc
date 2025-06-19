@@ -953,6 +953,28 @@ NCCL_PARAM(AllocP2pNetLLBuffers, "ALLOC_P2P_NET_LL_BUFFERS", 0);
 // MNNVL: Flag to indicate whether to enable Multi-Node NVLink
 NCCL_PARAM(MNNVLEnable, "MNNVL_ENABLE", 2);
 
+/* 获取本地rank的hsa agent */
+ncclResult_t getLocalHsaAgent(struct ncclComm* comm)
+{
+  struct hsaAgentInfo agentInfo;
+
+  if (comm->validHsaAgent) {
+    return ncclSuccess;
+  }
+
+  agentInfo.rank = comm->rank;
+  agentInfo.busId = comm->busId;
+  NCCLCHECK(rocmGetHsaAgentFromBdf(&agentInfo));
+  if (agentInfo.validHsaAgent) {
+    comm->validHsaAgent = true;
+    comm->hsaAgent = agentInfo.hsaAgent;
+    return ncclSuccess;
+  } else {
+    comm->validHsaAgent = false;
+    return ncclInternalError;
+  }
+}
+
 #if CUDART_VERSION >= 11030
 
 #include <cuda.h>
@@ -1078,6 +1100,8 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
 
   bool needsProxy = false;
   bool mscclNeedsProxy = needsProxy;
+
+  getLocalHsaAgent(comm);
 
   timers[TIMER_INIT_ALLGATHER] = clockNano();
   // AllGather1 - begin

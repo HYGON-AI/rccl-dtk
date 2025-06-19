@@ -325,6 +325,10 @@ struct ncclProxyConnection {
   proxyConnectState state;
   struct ncclCollNetSharedRes* collNet;
   int needsProxyProgress;
+  int channelId;
+  int resMemType;
+  int connIndex;
+  struct ncclComm* comm;
 };
 
 typedef ncclResult_t (*threadFunc_t)(struct ncclProxyArgs*);

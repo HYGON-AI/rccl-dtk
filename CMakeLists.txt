@@ -34,6 +34,7 @@ option(PROFILE                                 "Enable profiling"               
 option(TIMETRACE                               "Enable time-trace during compilation"          OFF)
 option(TRACE                                   "Enable additional tracing"                     OFF)
 option(SUPPORT_XHCL_TOPO                       "Support Detect Hyswitch"                       ON)
+option(SUPPORT_PCIE_CHANNEL                    "Support PCIE CHANNEL"                          ON)
 
 # Default GPU architectures to build
 #==================================================================================================
@@ -796,6 +797,9 @@ if(TIMETRACE)
 endif()
 if (SUPPORT_XHCL_TOPO)
   target_compile_definitions(rccl PRIVATE RSMI_SUPPORT_XHCL_TOPO)
+endif()
+if (SUPPORT_PCIE_CHANNEL)
+  target_compile_definitions(rccl PRIVATE SUPPORT_PCIE_CHANNEL)
 endif()
 
 ## Set RCCL linked library directories

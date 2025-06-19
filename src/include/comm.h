@@ -411,6 +411,9 @@ struct ncclComm {
   struct ncclPeerInfo* peerInfo;
   struct ncclTopoSystem* topo;
 
+  bool validHsaAgent;
+  hsa_agent_t hsaAgent;
+
   int netPluginLoaded;
   ncclNet_t* ncclNet;
   ncclNetDeviceType netDeviceType;

@@ -15,11 +15,16 @@
 #include "transport.h"
 
 enum p2pType { P2P_DIRECT, P2P_INTERMEDIATE, P2P_IPC, P2P_CUMEM };
+enum p2pMemType {
+  P2P_HIP_NOR_MEM,
+  P2P_HSA_PCIE_MEM
+};
 
 struct ncclP2pBuff {
   void* directPtr;
   size_t size;
   ncclIpcDesc ipcDesc;
+  int memType;
 };
 
 struct p2pConnectInfo {
@@ -66,6 +71,7 @@ struct p2pResources {
   };
   void* sendMemIpc;
   void* recvMemIpc;
+  int recvMemType;
   // CE memcpy support
   struct p2pShmProxyInfo proxyInfo;
   struct p2pShm* shm;
@@ -81,6 +87,31 @@ struct p2pCuMemProxyInfo {
 };
 
 #include <sys/types.h>
+RCCL_PARAM(CollXHCLChannelNum, "COLL_XHCL_CHANNEL_NUM", MAXCHANNELS);
+RCCL_PARAM(P2pXHCLChannelNum, "P2P_XHCL_CHANNEL_NUM", MAXCHANNELS);
+
+static int getCollXhclChannelNum(struct ncclComm* comm) {
+  // Do not use extend pcie mem channel for mult nodes
+  return comm->nNodes > 1 ? MAXCHANNELS : rcclParamCollXHCLChannelNum();
+}
+
+static int getP2pXhclChannelNum(struct ncclComm* comm) {
+  // Do not use extend pcie mem channel for mult nodes
+  return comm->nNodes > 1 ? MAXCHANNELS : rcclParamP2pXHCLChannelNum();
+}
+
+static bool checkXhclMemChannel(struct ncclComm* comm, int connIndex, int channelId) {
+  int collXhclChannelNum = getCollXhclChannelNum(comm);
+  int p2pXhclChannelNum = getP2pXhclChannelNum(comm);
+
+  if (connIndex == 0) {
+    return channelId < collXhclChannelNum;
+  }else if (connIndex == 1) {
+    return channelId < p2pXhclChannelNum;
+  }
+  
+  return false;
+}
 
 /* Convert a PCI busId string into a local cudaDev device index (cf. CUDA_VISIBLE_DEVICES) */
 static int busIdToCudaDev(int64_t busId) {
@@ -345,7 +376,11 @@ static ncclResult_t p2pMap(struct ncclComm *comm, struct ncclProxyConnector* pro
     *ipcPtr = NULL;
   } else {
     // Different PID
-    NCCLCHECK(ncclP2pImportShareableBuffer(comm, comm->topParentRanks[peerInfo->rank], p2pBuff->size, &p2pBuff->ipcDesc, devMem));
+    if (p2pBuff->memType == P2P_HIP_NOR_MEM) {
+      NCCLCHECK(ncclP2pImportShareableBuffer(comm, comm->topParentRanks[peerInfo->rank], p2pBuff->size, &p2pBuff->ipcDesc, devMem));
+    } else if (p2pBuff->memType == P2P_HSA_PCIE_MEM) {
+      NCCLCHECK(rocm_hsa_amd_ipc_memory_attach(&p2pBuff->ipcDesc.hsaIpcHandle, p2pBuff->size, 1, &comm->hsaAgent, devMem));
+    }
     *ipcPtr = *devMem;
   }
   return ncclSuccess;
@@ -417,6 +452,10 @@ ncclResult_t p2pSendSetup(struct ncclComm* comm, struct ncclTopoGraph* graph, st
 
   tpProxyRank = comm->topParentRanks[info->rank];
   NCCLCHECK(ncclProxyConnect(comm, TRANSPORT_P2P, 1, tpProxyRank, &send->proxyConn));
+  send->proxyConn.connection->channelId = channelId;
+  send->proxyConn.connection->connIndex = connIndex;
+  send->proxyConn.connection->comm = comm;
+
   if (useMemcpy) {
     NCCLCHECK(ncclProxyCallBlocking(comm, &send->proxyConn, ncclProxyMsgSetup, NULL, 0, &resources->proxyInfo, sizeof(struct p2pShmProxyInfo)));
     info->shmSize = resources->proxyInfo.shmSize;
@@ -425,6 +464,7 @@ ncclResult_t p2pSendSetup(struct ncclComm* comm, struct ncclTopoGraph* graph, st
     NCCLCHECK(ncclProxyCallBlocking(comm, &send->proxyConn, ncclProxyMsgSetup, &sendSize, sizeof(int), &info->p2pBuff, sizeof(struct ncclP2pBuff)));
     NCCLCHECK(p2pMap(comm, &send->proxyConn, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, (void**)&resources->sendDevMem, &resources->sendMemIpc));
   }
+  resources->recvMemType = info->p2pBuff.memType;
 
   return ncclSuccess;
 }
@@ -474,9 +514,14 @@ ncclResult_t p2pRecvSetup(struct ncclComm* comm, struct ncclTopoGraph* graph, st
 
   tpProxyRank = comm->topParentRanks[info->rank];
   NCCLCHECK(ncclProxyConnect(comm, TRANSPORT_P2P, 0, tpProxyRank, &recv->proxyConn));
+  recv->proxyConn.connection->channelId = channelId;
+  recv->proxyConn.connection->connIndex = connIndex;
+  recv->proxyConn.connection->comm = comm;
+
   NCCLCHECK(ncclProxyCallBlocking(comm, &recv->proxyConn, ncclProxyMsgSetup, &recvSize, sizeof(int), &info->p2pBuff, sizeof(struct ncclP2pBuff)));
 
   NCCLCHECK(p2pMap(comm, &recv->proxyConn, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, (void**)&resources->recvDevMem, &resources->recvMemIpc));
+  resources->recvMemType = info->p2pBuff.memType;
   return ncclSuccess;
 }
 
@@ -487,6 +532,10 @@ static ncclResult_t p2pSendConnect(struct ncclComm* comm, struct ncclConnect* co
   struct p2pConnectInfo* info = (struct p2pConnectInfo*)connectInfo;
 
   NCCLCHECK(p2pMap(comm, &send->proxyConn, comm->peerInfo+rank, comm->peerInfo+info->rank, &info->p2pBuff, (void**)&remDevMem, &resources->recvMemIpc));
+  resources->recvMemType = info->p2pBuff.memType;
+  INFO(NCCL_P2P,"rank %d channelId %d remDevMem %p recvMemIpc %p recvMemType %d p2p send connect", 
+    comm->rank, send->proxyConn.connection->channelId, remDevMem, resources->recvMemIpc, resources->recvMemType);
+
 
   char* buff = (char*)(remDevMem+1);
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
@@ -571,7 +620,13 @@ ncclResult_t p2pSendFree(struct ncclConnector* send) {
     }
     else {
       if (resources->sendMemIpc) CUDACHECK(cudaIpcCloseMemHandle(resources->sendMemIpc));
-      if (resources->recvMemIpc) CUDACHECK(cudaIpcCloseMemHandle(resources->recvMemIpc));
+      if (resources->recvMemIpc) {
+        if (resources->recvMemType == P2P_HIP_NOR_MEM) {
+          CUDACHECK(cudaIpcCloseMemHandle(resources->recvMemIpc));
+        } else if (resources->recvMemType == P2P_HSA_PCIE_MEM) {
+          NCCLCHECK(rocm_hsa_amd_ipc_memory_detach(resources->recvMemIpc));
+        }
+      }
     }
     free(resources);
   }
@@ -630,6 +685,7 @@ static ncclResult_t p2pSendProxySetup(struct ncclProxyConnection* connection, st
     struct ncclP2pBuff* p2pBuff = (struct ncclP2pBuff*)respBuff;
     NCCLCHECK(ncclP2pAllocateShareableBuffer(size, &p2pBuff->ipcDesc, &p2pBuff->directPtr));
     p2pBuff->size = size;
+    p2pBuff->memType = P2P_HIP_NOR_MEM;
     if (ncclCuMemEnable()) {
       // cuMem API support
       struct p2pCuMemProxyInfo* proxyInfo;
@@ -649,7 +705,23 @@ static ncclResult_t p2pRecvProxySetup(struct ncclProxyConnection* connection, st
   int size = *((int*)reqBuff);
   if (respSize != sizeof(struct ncclP2pBuff)) return ncclInternalError;
   struct ncclP2pBuff* p2pBuff = (struct ncclP2pBuff*)respBuff;
-  NCCLCHECK(ncclP2pAllocateShareableBuffer(size, &p2pBuff->ipcDesc, &p2pBuff->directPtr));
+
+  if (checkXhclMemChannel(connection->comm, connection->connIndex, connection->channelId)) {
+    NCCLCHECK(ncclP2pAllocateShareableBuffer(size, &p2pBuff->ipcDesc, &p2pBuff->directPtr));
+    p2pBuff->memType = P2P_HIP_NOR_MEM;
+  } else {
+    p2pBuff->directPtr = NULL;
+    NCCLCHECK(rocmAllocPcieLinkMem(connection->comm->hsaAgent, size, &p2pBuff->directPtr));
+    if (rocm_hsa_amd_ipc_memory_create(p2pBuff->directPtr, size, &p2pBuff->ipcDesc.hsaIpcHandle) != ncclSuccess) {
+      WARN("rank %d channelId %d fail create ipc memory\n", proxyState->tpRank, connection->channelId);
+      rocm_hsa_amd_memory_pool_free(p2pBuff->directPtr);
+      return ncclInternalError;
+    }
+    p2pBuff->memType = P2P_HSA_PCIE_MEM;
+    INFO(NCCL_INIT|NCCL_P2P, "rank %d connIndex %d channelId %d collXhclNum %d p2pXhclNum %d enable pcie mem channel",
+      connection->comm->rank, connection->connIndex, connection->channelId, getCollXhclChannelNum(connection->comm), getP2pXhclChannelNum(connection->comm));
+  }
+
   p2pBuff->size = size;
   if (ncclCuMemEnable()) {
     // cuMem API support
@@ -660,6 +732,7 @@ static ncclResult_t p2pRecvProxySetup(struct ncclProxyConnection* connection, st
   } else {
     connection->transportResources = p2pBuff->directPtr;
   }
+  connection->resMemType = p2pBuff->memType;
   *done = 1;
   return ncclSuccess;
 }
@@ -721,7 +794,11 @@ static ncclResult_t p2pRecvProxyFree(struct ncclProxyConnection* connection, str
     }
   } else {
     // Do not check return code as CUDA may have already shut down
-    ncclCudaFree(connection->transportResources);
+    if (connection->resMemType == P2P_HIP_NOR_MEM) {
+      ncclCudaFree(connection->transportResources);
+    } else if (connection->resMemType == P2P_HSA_PCIE_MEM) {
+      rocm_hsa_amd_memory_pool_free(connection->transportResources);
+    }
   }
   return ncclSuccess;
 }

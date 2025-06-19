@@ -13,6 +13,7 @@
 #include <cuda_runtime.h>
 
 #include "core.h"
+#include "hsa/hsa_ext_amd.h"
 
 #if CUDART_VERSION < 12030
 // MNNVL: FABRIC handle support lifted from CUDA 12.3
@@ -35,6 +36,7 @@ typedef union {
   cudaIpcMemHandle_t devIpc;
   // cuMem API support
   ncclCuDesc cuDesc;
+  hsa_amd_ipc_memory_t hsaIpcHandle;
 } ncclIpcDesc;
 
 ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, ncclIpcDesc *ipcDesc, void **ptr);
