@@ -83,6 +83,7 @@ typedef struct ncclConfig_v21700 {
   int maxCTAs;                 /*!< Maximum number of cooperative thread arrays (blocks) */
   const char *netName;         /*!< Force NCCL to use a specfic network */
   int splitShare;              /*!< Allow communicators to share resources */
+  const char * graph;          /*!< Topo graph */
 } ncclConfig_t;
 
 /* Config initializer must be assigned to initialize config structure when it is created.
@@ -96,7 +97,8 @@ typedef struct ncclConfig_v21700 {
   NCCL_CONFIG_UNDEF_INT,                            /* minCTAs */        \
   NCCL_CONFIG_UNDEF_INT,                            /* maxCTAs */        \
   NCCL_CONFIG_UNDEF_PTR,                            /* netName */        \
-  NCCL_CONFIG_UNDEF_INT                             /* splitShare */     \
+  NCCL_CONFIG_UNDEF_INT,                            /* splitShare */     \
+  NCCL_CONFIG_UNDEF_PTR                             /* graph */          \
 }
 /*! @} */
 
@@ -797,6 +799,333 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
 /*! @endcond */
 /*! @} */
 
+/*! @brief      All-Reduce with user config
+    @details    Reduces data arrays of length *count* in *sendbuff* using *op* operation, and
+                leaves identical copies of result on each *recvbuff*.
+                In-place operation will happen if sendbuff == recvbuff.
+                Use "proto","algo","nChannels" to adjust the Protocol,Algorithm and 
+                nChannels during actual communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+
+    @param[in]  sendbuff      Input data array to reduce
+    @param[out] recvbuff      Data array to store reduced result array
+    @param[in]  count         Number of elements in data buffer
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  op            Reduction operator
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  algo          Algorithm configured by the user
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclAllreduce(const void* sendbuff, void* recvbuff, size_t count,
+        ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, hipStream_t stream,
+        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+/*! @cond       include_hidden */
+    ncclResult_t pduNcclAllreduce(const void* sendbuff, void* recvbuff, size_t count,
+        ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, hipStream_t stream,
+        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+/*! @endcond */
+
+/*! @brief      All-Gather with user config
+    @details    Each device gathers *sendcount* values from other GPUs into *recvbuff*,
+                receiving data from rank i at offset i*sendcount.
+                Assumes recvcount is equal to nranks*sendcount, which means that recvbuff
+                should have a size of at least nranks*sendcount elements.
+                In-place operations will happen if sendbuff == recvbuff + rank * sendcount.
+                Use "proto","algo","nChannels" to adjust the Protocol,Algorithm and 
+                nChannels during actual communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+
+    @param[in]  sendbuff      Input data array to send
+    @param[out] recvbuff      Data array to store the gathered result
+    @param[in]  sendcount     Number of elements each rank sends
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  algo          Algorithm configured by the user
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclAllgather(const void* sendbuff, void* recvbuff, size_t sendcount,
+        ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream,
+        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+/*! @cond       include_hidden */
+    ncclResult_t pduNcclAllgather(const void* sendbuff, void* recvbuff, size_t sendcount,
+        ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream,
+        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+/*! @endcond */
+    
+
+/*! @brief      (Deprecated) Broadcast (in-place) with user config
+    @details    Copies *count* values from *root* to all other devices.
+                root is the rank (not the CUDA device) where data resides before the
+                operation is started.
+                This operation is implicitly in-place.
+                Use "proto","algo","nChannels" to adjust the Protocol,Algorithm and 
+                nChannels during actual communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+
+    @param[in,out]  buff      Input array on *root* to be copied to other ranks.  Output array for all ranks.
+    @param[in]  count         Number of elements in data buffer
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  root          Rank owning buffer to be copied to others
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  algo          Algorithm configured by the user
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclBcast(void* buff, size_t count, ncclDataType_t datatype, int root,
+        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+/*! @cond       include_hidden */
+    ncclResult_t pduNcclBcast(void* buff, size_t count, ncclDataType_t datatype, int root,
+        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+/*! @endcond */
+    
+/*! @brief      Broadcast with user config
+    @details    Copies *count* values from *sendbuff* on *root* to *recvbuff* on all devices.
+                *root* is the rank (not the HIP device) where data resides before the operation is started.
+                *sendbuff* may be NULL on ranks other than *root*.
+                In-place operation will happen if *sendbuff* == *recvbuff*.
+                Use "proto","algo","nChannels" to adjust the Protocol,Algorithm and 
+                nChannels during actual communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+    
+    @param[in]  sendbuff      Data array to copy (if *root*).  May be NULL for other ranks
+    @param[in]  recvbuff      Data array to store received array
+    @param[in]  count         Number of elements in data buffer
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  root          Rank of broadcast root
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  algo          Algorithm configured by the user
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclBroadcast(const void* sendbuff, void* recvbuff, size_t count, ncclDataType_t datatype, int root,
+        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+/*! @cond       include_hidden */
+    ncclResult_t pduNcclBroadcast(const void* sendbuff, void* recvbuff, size_t count, ncclDataType_t datatype, int root,
+        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+/*! @endcond */
+
+/*! @brief      Reduce-Scatter with user config
+    @details    Reduces data in *sendbuff* using *op* operation and leaves reduced result
+                scattered over the devices so that *recvbuff* on rank i will contain the i-th
+                block of the result.
+                Assumes sendcount is equal to nranks*recvcount, which means that *sendbuff*
+                should have a size of at least nranks*recvcount elements.
+                In-place operations will happen if recvbuff == sendbuff + rank * recvcount.
+                Use "proto","algo","nChannels" to adjust the Protocol,Algorithm and 
+                nChannels during actual communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+
+    @param[in]  sendbuff      Input data array to reduce
+    @param[out] recvbuff      Data array to store reduced result subarray
+    @param[in]  recvcount     Number of elements each rank receives
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  op            Reduction operator
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  algo          Algorithm configured by the user
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclReduceScatter(const void* sendbuff, void* recvbuff,
+        size_t recvcount, ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm,
+        hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+/*! @cond       include_hidden */
+    ncclResult_t pduNcclReduceScatter(const void* sendbuff, void* recvbuff,
+        size_t recvcount, ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm,
+        hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+/*! @endcond */
+
+/*! @brief      Reduce with user config
+    @details    Reduces data arrays of length *count* in *sendbuff* into *recvbuff* using *op*
+                operation.
+                *recvbuff* may be NULL on all calls except for root device.
+                *root* is the rank (not the HIP device) where data will reside after the
+                 operation is complete.
+                In-place operation will happen if sendbuff == recvbuff.
+                Use "proto","algo","nChannels" to adjust the Protocol,Algorithm and 
+                nChannels during actual communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+
+    @param[in]  sendbuff      Local device data buffer to be reduced
+    @param[out] recvbuff      Data buffer where result is stored (only for *root* rank).  May be null for other ranks.
+    @param[in]  count         Number of elements in every send buffer
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  op            Reduction operator type
+    @param[in]  root          Rank where result data array will be stored
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  algo          Algorithm configured by the user
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclReduce(const void* sendbuff, void* recvbuff, size_t count, ncclDataType_t datatype,
+        ncclRedOp_t op, int root, ncclComm_t comm, hipStream_t stream,
+        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+    /*! @cond       include_hidden */
+    ncclResult_t pduNcclReduce(const void* sendbuff, void* recvbuff, size_t count, ncclDataType_t datatype,
+        ncclRedOp_t op, int root, ncclComm_t comm, hipStream_t stream, 
+        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+/*! @endcond */
+
+/*! @brief      Send with user config
+    @details    Send data from *sendbuff* to rank *peer*.
+                Rank *peer* needs to call ncclRecv with the same *datatype* and the same *count*
+                as this rank.
+                This operation is blocking for the GPU. If multiple ncclSend and ncclRecv operations
+                need to progress concurrently to complete, they must be fused within a ncclGroupStart /
+                ncclGroupEnd section.
+                Use "proto","nChannels" to adjust the Protocol and p2pnChannels during actual p2p communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+
+    @param[in]  sendbuff      Data array to send
+    @param[in]  count         Number of elements to send
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  peer          Peer rank to send to
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclSend(const void* sendbuff, size_t count, ncclDataType_t datatype, int peer,
+        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+/*! @cond       include_hidden */
+    ncclResult_t pduNcclSend(const void* sendbuff, size_t count, ncclDataType_t datatype, int peer,
+        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+/*! @endcond */
+    
+/*! @brief      Receive with user config
+    @details    Receive data from rank *peer* into *recvbuff*.
+                Rank *peer* needs to call ncclSend with the same datatype and the same count
+                as this rank.
+                This operation is blocking for the GPU. If multiple ncclSend and ncclRecv operations
+                need to progress concurrently to complete, they must be fused within a ncclGroupStart/
+                ncclGroupEnd section.
+                Use "proto","nChannels" to adjust the Protocol and p2pnChannels during actual p2p communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+    
+    @param[out] recvbuff      Data array to receive
+    @param[in]  count         Number of elements to receive
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  peer          Peer rank to send to
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclRecv(void* recvbuff, size_t count, ncclDataType_t datatype, int peer,
+        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+/*! @cond       include_hidden */
+    ncclResult_t pduNcclRecv(void* recvbuff, size_t count, ncclDataType_t datatype, int peer,
+        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+/*! @endcond */
+/*! @brief      Gather with user config
+    @details    Root device gathers *sendcount* values from other GPUs into *recvbuff*,
+                receiving data from rank i at offset i*sendcount.
+                Assumes recvcount is equal to nranks*sendcount, which means that *recvbuff*
+                should have a size of at least nranks*sendcount elements.
+                In-place operations will happen if sendbuff == recvbuff + rank * sendcount.
+                *recvbuff* may be NULL on ranks other than *root*.
+                Use "proto","nChannels" to adjust the Protocol and p2pnChannels during actual p2p communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+
+    @param[in]  sendbuff      Data array to send
+    @param[out] recvbuff      Data array to receive into on *root*.
+    @param[in]  sendcount     Number of elements to send per rank
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  root          Rank that receives data from all other ranks
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclGather(const void* sendbuff, void* recvbuff, size_t sendcount,
+        ncclDataType_t datatype, int root, ncclComm_t comm, hipStream_t stream,
+        const char* proto = nullptr, int nChannels = 0);
+/*! @cond       include_hidden */
+    ncclResult_t pduNcclGather(const void* sendbuff, void* recvbuff, size_t sendcount,
+        ncclDataType_t datatype, int root, ncclComm_t comm, hipStream_t stream,
+        const char* proto = nullptr, int nChannels = 0);
+/*! @endcond */
+    
+/*! @brief      Scatter with user config
+    @details    Scattered over the devices so that recvbuff on rank i will contain the i-th
+                block of the data on root.
+                Assumes sendcount is equal to nranks*recvcount, which means that *sendbuff*
+                should have a size of at least nranks*recvcount elements.
+                In-place operations will happen if recvbuff == sendbuff + rank * recvcount.
+                Use "proto","nChannels" to adjust the Protocol and p2pnChannels during actual p2p communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+    
+    @param[in]  sendbuff      Data array to send (on *root* rank).  May be NULL on other ranks.
+    @param[out] recvbuff      Data array to receive partial subarray into
+    @param[in]  recvcount     Number of elements to receive per rank
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  root          Rank that scatters data to all other ranks
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclScatter(const void* sendbuff, void* recvbuff,
+        size_t recvcount, ncclDataType_t datatype, int root, ncclComm_t comm,
+        hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+/*! @cond       include_hidden */
+    ncclResult_t pduNcclScatter(const void* sendbuff, void* recvbuff,
+        size_t recvcount, ncclDataType_t datatype, int root, ncclComm_t comm,
+        hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+/*! @endcond */
+    
+/*! @brief      All-To-All with user config
+    @details    Device (i) send (j)th block of data to device (j) and be placed as (i)th
+                block. Each block for sending/receiving has *count* elements, which means
+                that *recvbuff* and *sendbuff* should have a size of nranks*count elements.
+                In-place operation is NOT supported. It is the user's responsibility
+                to ensure that sendbuff and recvbuff are distinct.
+                Use "proto","nChannels" to adjust the Protocol and p2pnChannels during actual p2p communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+    
+    @param[in]  sendbuff      Data array to send (contains blocks for each other rank)
+    @param[out] recvbuff      Data array to receive (contains blocks from each other rank)
+    @param[in]  count         Number of elements to send between each pair of ranks
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclAllToAll(const void* sendbuff, void* recvbuff, size_t count,
+        ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+/*! @cond       include_hidden */
+    ncclResult_t pduNcclAllToAll(const void* sendbuff, void* recvbuff, size_t count,
+        ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+/*! @endcond */
+    
+/*! @brief      All-To-Allv
+    @details    Device (i) sends sendcounts[j] of data from offset sdispls[j]
+                to device (j). At the same time, device (i) receives recvcounts[j] of data
+                from device (j) to be placed at rdispls[j].
+                sendcounts, sdispls, recvcounts and rdispls are all measured in the units
+                of datatype, not bytes.
+                In-place operation will happen if sendbuff == recvbuff.
+                Use "proto","nChannels" to adjust the Protocol and p2pnChannels during actual p2p communication.
+    @return     Result code. See @ref rccl_result_code for more details.
+    
+    @param[in]  sendbuff      Data array to send (contains blocks for each other rank)
+    @param[in]  sendcounts    Array containing number of elements to send to each participating rank
+    @param[in]  sdispls       Array of offsets into *sendbuff* for each participating rank
+    @param[out] recvbuff      Data array to receive (contains blocks from each other rank)
+    @param[in]  recvcounts    Array containing number of elements to receive from each participating rank
+    @param[in]  rdispls       Array of offsets into *recvbuff* for each participating rank
+    @param[in]  datatype      Data buffer element datatype
+    @param[in]  comm          Communicator group object to execute on
+    @param[in]  stream        HIP stream to execute collective on 
+    @param[in]  proto         protocol configured by the user 
+    @param[in]  nChannels     nChannels configured by the user */
+    ncclResult_t  duNcclAllToAllv(const void *sendbuff, const size_t sendcounts[],
+        const size_t sdispls[], void *recvbuff, const size_t recvcounts[],
+        const size_t rdispls[], ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream,
+        const char* proto = nullptr, int nChannels = 0);
+/*! @cond       include_hidden */
+    ncclResult_t pduNcclAllToAllv(const void *sendbuff, const size_t sendcounts[],
+        const size_t sdispls[], void *recvbuff, const size_t recvcounts[],
+        const size_t rdispls[], ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream,
+        const char* proto = nullptr, int nChannels = 0);
+/*! @endcond */
 
 /*! @defgroup   rccl_group_api Group semantics
     @details    When managing multiple GPUs from a single thread, and since RCCL collective

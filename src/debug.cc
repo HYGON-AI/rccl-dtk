@@ -91,6 +91,10 @@ static void ncclDebugInit() {
         mask = NCCL_PROFILE;
       } else if (strcasecmp(subsys, "VERBS") == 0) {
         mask = NCCL_VERBS;
+      } else if (strcasecmp(subsys, "TASK") == 0) {
+        mask = NCCL_TASK;
+      } else if (strcasecmp(subsys, "SDMA") == 0) {
+        mask = NCCL_SDMA;
       } else if (strcasecmp(subsys, "ALL") == 0) {
         mask = NCCL_ALL;
       }

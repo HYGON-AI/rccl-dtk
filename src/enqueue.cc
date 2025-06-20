@@ -869,7 +869,7 @@ static ncclResult_t addP2pToPlan(
     int nChannelsMin, int nChannelsMax, int p2pRound,
     int sendRank, void* sendAddr, ssize_t sendBytes,
     int recvRank, void* recvAddr, ssize_t recvBytes,
-    uint64_t sendOpCount, uint64_t recvOpCount
+    uint64_t sendOpCount, uint64_t recvOpCount, struct ncclTaskP2p* p2p
   ) {
   int connIndex[2] = {1, 1};
   bool selfSend = (sendRank == comm->rank);
@@ -896,6 +896,7 @@ static ncclResult_t addP2pToPlan(
         int peerRank = dir ? sendRank : recvRank;
         struct ncclConnector* conn = dir ? &channelPeers[peerRank]->send[connIndex[dir]]
                                          : &channelPeers[peerRank]->recv[connIndex[dir]];
+        if (bytes[dir] != -1)
         protoLL[dir] &= conn->conn.buffs[NCCL_PROTO_LL] != nullptr && !IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx12");
         network[dir] |= conn->transportComm == (dir ? &netTransport.send : &netTransport.recv);
         proxySameProcess[dir] &= conn->proxyConn.sameProcess;
@@ -914,10 +915,23 @@ static ncclResult_t addP2pToPlan(
   int chunkDataSize_u32fp8[2];
   bool registered[2];
 
+  int userProto[2] = {-1, -1};
+  if (p2p && p2p->UserProto) {
+    if (strcasecmp(p2p->UserProto, "SIMPLE") == 0) {
+      for (int dir = 0; dir < 2; dir++) userProto[dir] = NCCL_PROTO_SIMPLE;
+    } else if (strcasecmp(p2p->UserProto, "LL") == 0 ) {
+      for (int dir = 0; dir < 2; dir++) {
+        if (protoLL[dir]) userProto[dir] = NCCL_PROTO_LL;
+      }
+    } else {
+      WARN(" The configured value of protocol for p2p : %s is invalid", p2p->UserProto);
+    }
+  }
+
   for (int dir=0; dir < 2; dir++) { // 0=recv, 1=send
     if (bytes[dir] != -1) protoLL[dir] &= bytes[dir] <= thresholdLL;
-    protocol[dir] = protoLL[dir] ? NCCL_PROTO_LL : NCCL_PROTO_SIMPLE;
-
+    protocol[dir] = userProto[dir] != -1 ? userProto[dir] : protoLL[dir] ? NCCL_PROTO_LL : NCCL_PROTO_SIMPLE;
+    
     stepSize[dir] = comm->buffSizes[protocol[dir]]/NCCL_STEPS;
     if (protocol[dir] == NCCL_PROTO_SIMPLE) stepSize[dir] = comm->p2pChunkSize;
     chunkSize[dir] = stepSize[dir];
@@ -953,6 +967,14 @@ static ncclResult_t addP2pToPlan(
       while (partSize > maxPartSize && nChannels[dir] <= nChannelsMax/2) {
         nChannels[dir] *= 2;
         partSize = divUp(bytes[dir], nChannels[dir]);
+      }
+    }
+    // UserConfig’s nChannels
+    if (p2p && p2p->UserChannels) {
+      if(p2p->UserChannels <= comm->p2pnChannelsPerPeer){
+        if(nChannels[dir]) nChannels[dir] = p2p->UserChannels;
+      } else { 
+        WARN("UserChannels:%d must not be greater than comm->p2pnChannelsPerPeer:%d ! ", p2p->UserChannels, comm->p2pnChannelsPerPeer);
       }
     }
   }
@@ -1005,6 +1027,9 @@ static ncclResult_t addP2pToPlan(
   }
 
   nChannelsMax = std::max(nChannels[0], nChannels[1]);
+  INFO(NCCL_TASK,"p2p : rank %d send rank %d recv rank %d p2pnChannelsPerPeer %d p2pnChannels %d nChannelsMax %d  UserChannels %d protocol %s", 
+    comm->rank, sendRank, recvRank, comm->p2pnChannelsPerPeer, comm->p2pnChannels, nChannelsMax, p2p->UserChannels,ncclProtoStr[protocol[0]]);
+
   for (int part=0; part < nChannelsMax; part++) {
     int channelId = ncclP2pChannelForPart(comm->p2pnChannels, base, part, comm->p2pnChannelsPerPeer, comm->nNodes);
     plan->channelMask.masks[channelId/64] |= uint64_t(1)<<(channelId%64);
@@ -1037,7 +1062,8 @@ static ncclResult_t addP2pToPlan(
           proxyOps[dir].recvbuff = (uint8_t*)addr+partBeg;
           proxyOps[dir].nbytes = partEnd-partBeg;
         } else {
-          proxyOps[dir].nsteps = divUp(partEnd-partBeg, chunkDataSize);
+          size_t nbytes = partEnd-partBeg;
+          proxyOps[dir].nsteps = nbytes ? divUp(nbytes, chunkDataSize) : 1;
           proxyOps[dir].nbytes = std::min(partEnd-partBeg, chunkDataSize);
         }
         if (proxyOps[dir].protocol == NCCL_PROTO_LL) {
@@ -1122,7 +1148,7 @@ static ncclResult_t scheduleP2pTasksToPlan(
           return ncclSuccess;
         }
         NCCLCHECK(addP2pToPlan(comm, plan, nChannelsMin, nChannelsMax, round, sendRank, sendBuff, sendBytes, recvRank, recvBuff, recvBytes,
-          send ? send->opCount : 0, recv ? recv->opCount : 0));
+          send ? send->opCount : 0, recv ? recv->opCount : 0, send ? send : recv ? recv : nullptr));
         if (send != nullptr) {
           ncclIntruQueueDequeue(&peers[sendRank].sendQueue);
           comm->planner.nTasksP2p -= 1;
@@ -1706,6 +1732,26 @@ static ncclResult_t topoGetAlgoInfo(
   if (comm->rank == 0) INFO(NCCL_TUNING, "%ld Bytes -> Algo %d proto %d time %f", nBytes, info->algorithm, info->protocol, time);
   if (simInfo) simInfo->estimatedTime = time;
   TRACE(NCCL_COLL, "%ld Bytes -> Algo %d proto %d time %f", nBytes, info->algorithm, info->protocol, time);
+  
+  // Configure Coll's protocol , algorithm 
+  if(info->UserProto) {
+    if (strcasecmp(info->UserProto, "SIMPLE") == 0) {
+      info->protocol = NCCL_PROTO_SIMPLE;
+    }else if (strcasecmp(info->UserProto, "LL") == 0) {
+      info->protocol = NCCL_PROTO_LL;
+    }else{
+      WARN("The configured value of protocol for coll :%s is invalid",info->UserProto);
+    }
+  }
+  if(info->UserAlgo) {
+    if (strcasecmp(info->UserAlgo, "RING") == 0) {
+      info->algorithm = NCCL_ALGO_RING;
+    }else if (strcasecmp(info->UserAlgo, "TREE") == 0 && info->func == ncclFuncAllReduce) {
+      info->algorithm = NCCL_ALGO_TREE;
+    }else {
+      WARN("The configured value of algorithm for coll : %s is invalid",info->UserAlgo);
+    }
+  }
 
   int nc = comm->nChannels;
   int nt = comm->maxThreads[info->algorithm][info->protocol];
@@ -1775,6 +1821,23 @@ static ncclResult_t topoGetAlgoInfo(
   } else {
     info->nMaxChannels = nc;
   }
+  // Configure the actual nChannels through UserChannels
+  if (info->UserChannels > 0 && info->UserChannels <= comm->nChannels) {
+    int MaxRealNc = DIVUP(nBytes,nt);
+    int UserNc = std::max(std::min(2*CHANNEL_LIMIT, MaxRealNc),1);
+    if (info->UserChannels > UserNc) {
+      info->nMaxChannels = UserNc;
+      WARN("The configured value of Coll nChannels : %d is unreasonable, Coll nChannels is adjusted to %d ",info->UserChannels,UserNc);
+    } else if(info->UserChannels >= nc) {
+      info->nMaxChannels = info->UserChannels;
+    } else {
+      info->nMaxChannels = info->UserChannels;
+      WARN("The configured value of Coll nChannels : %d is unreasonable which may cause performance degradation, it should be >=  %d ",info->UserChannels,nc);
+    }
+  } else if(info->UserChannels) {
+    WARN("The configured value of Coll nChannels : %d is invalid",info->UserChannels);
+  }
+
   if (info->algorithm == NCCL_ALGO_TREE) nt = NCCL_MAX_NTHREADS; // Tree now uses all threads always.
   info->nWarps = nt/WARP_SIZE;
   return ncclSuccess;
@@ -2000,6 +2063,9 @@ static ncclResult_t calcCollChunking(
   }
 
   *outChunkSize = chunkSize;
+
+  INFO(NCCL_TASK,"Global rank %d : opCount %lx slicesteps %d spl %d cpl %d nbytes %zi -> protocol %s algorithm %s nchannels %d , nloops %d nsteps %d chunksize %d comm %p ",comm->localRankToRank[comm->localRank],proxyOp->opCount, sliceSteps, nstepsPerLoop, nchunksPerLoop, nBytes, 
+    ncclProtoStr[info->protocol], ncclAlgoStr[info->algorithm], info->nMaxChannels, nLoops, proxyOp->nsteps, chunkSize, comm);
   return ncclSuccess;
 }
 
@@ -2117,6 +2183,8 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
     p2p->buff = (void*)info->recvbuff;
     p2p->bytes = nBytes;
     p2p->opCount = comm->opCount;
+    p2p->UserProto = info->UserProto;
+    p2p->UserChannels = info->UserChannels;
     ncclIntruQueueEnqueue(
       isSendNotRecv ? &planner->peers[peer].sendQueue : &planner->peers[peer].recvQueue,
       p2p);
@@ -2182,6 +2250,9 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
       t->count = info->count;
       t->root = info->root;
       t->datatype = info->datatype;
+      t->UserProto = info->UserProto;
+      t->UserAlgo = info->UserAlgo;
+      t->UserChannels = info->UserChannels;
       size_t elementSize = ncclTypeSize(t->datatype);
       if (t->func == ncclFuncAllGather || t->func == ncclFuncBroadcast || t->func == ncclFuncAllToAllPivot) {
         t->count *= elementSize;
