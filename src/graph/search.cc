@@ -996,9 +996,12 @@ ncclResult_t ncclTopoCompute(ncclTopoSystem* system, struct ncclTopoGraph* graph
   int cpuArch, cpuVendor, cpuModel;
   NCCLCHECK(ncclTopoCpuType(system, &cpuArch, &cpuVendor, &cpuModel));
 
-  const char* str = ncclGetEnv("NCCL_GRAPH_FILE");
+  const char* str = system->UserGraphFile ? system->UserGraphFile : ncclGetEnv("NCCL_GRAPH_FILE");
   if (str) {
-    INFO(NCCL_ENV, "NCCL_GRAPH_FILE set by environment to %s", str);
+    if(system->UserGraphFile)
+      INFO(NCCL_INIT, "NCCL Graph set by User Configuration to %s", str);
+    else
+      INFO(NCCL_ENV, "NCCL_GRAPH_FILE set by environment to %s", str);
     struct ncclXml* xml;
     NCCLCHECK(xmlAlloc(&xml, NCCL_GRAPH_XML_MAX_NODES));
     NCCLCHECK(ncclTopoGetXmlGraphFromFile(str, xml));

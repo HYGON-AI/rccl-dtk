@@ -234,12 +234,19 @@ struct ncclTaskColl {
   void* sendMhandle;
   void* recvMhandle;
   uint64_t opCount;
+  //Optional User Configuration Parameter: Protocol Sting/Algorithm String/nChannels
+  const char* UserProto;
+  const char* UserAlgo;
+  int UserChannels;
 };
 struct ncclTaskP2p {
   struct ncclTaskP2p* next;
   void* buff;
   size_t bytes;
   uint64_t opCount;
+  //Optional User Configuration Parameter: Protocol Sting/Algorithm String/nChannels
+  const char* UserProto;
+  int UserChannels;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -410,6 +417,7 @@ struct ncclComm {
   struct ncclChannel channels[MAXCHANNELS];
   struct ncclPeerInfo* peerInfo;
   struct ncclTopoSystem* topo;
+  const char* UserGraphFile;
 
   bool validHsaAgent;
   hsa_agent_t hsaAgent;

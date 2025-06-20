@@ -801,7 +801,6 @@ ncclResult_t ncclTopoGetXmlFromGpu(struct ncclXmlNode* pciNode, uint32_t rocmDev
     uint32_t linkNum = 0;
     uint32_t linkState = 0;
     uint64_t pciBdf = 0;
-    RSMI_XHCL_LINK_TYPE devType;
 
     NCCLCHECK(rocm_smi_dev_xhcl_link_number_get(rocmDev, &linkNum));
     for (int j = 0; j < linkNum; j++) {
@@ -810,7 +809,6 @@ ncclResult_t ncclTopoGetXmlFromGpu(struct ncclXmlNode* pciNode, uint32_t rocmDev
         continue;
       }
 
-      NCCLCHECK(rocm_smi_dev_xhcl_link_remote_dev_type_get(rocmDev, j, &devType));
       NCCLCHECK(rocm_smi_dev_xhcl_link_remote_bdfid_get(rocmDev, j, &pciBdf));
       char busIdStr[] = "00000000:00:00.0";
       snprintf(busIdStr, sizeof(busIdStr), "%04lx:%02lx:%02lx.%01lx", (pciBdf) >> 32, (pciBdf & 0xff00) >> 8, (pciBdf & 0xf8) >> 3, (pciBdf & 0x7));
@@ -829,7 +827,6 @@ ncclResult_t ncclTopoGetXmlFromGpu(struct ncclXmlNode* pciNode, uint32_t rocmDev
         NCCLCHECK(xmlGetAttrInt(nvlNode, "count", &count));
         NCCLCHECK(xmlSetAttrInt(nvlNode, "count", count+1));
       }
-      // INFO(NCCL_INIT, "-hcugon- hennry rocmDev:%d linkNum:%d link:%d linkState:%d remote type:%d bdf:0x%lx", rocmDev, linkNum, j, linkState, devType, pciBdf);
     }
 #else
     const char* busId;

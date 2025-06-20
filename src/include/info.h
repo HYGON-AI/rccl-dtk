@@ -29,6 +29,10 @@ struct ncclInfo {
   // Algorithm details
   int chunkSteps;
   int sliceSteps;
+  //Optional User Configuration Parameter: Protocol Sting/Algorithm String/nChannels
+  const char* UserProto;
+  const char* UserAlgo;
+  int UserChannels;
 };
 
 #endif

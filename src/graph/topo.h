@@ -189,6 +189,7 @@ struct ncclTopoSystem {
   bool ll128Enabled;
   float baseBw;
   bool mscclEnabled;
+  const char* UserGraphFile;
 
   // [RCCL] Track hostIdx to support rail-optimized rings/trees
   int hostIdx;
