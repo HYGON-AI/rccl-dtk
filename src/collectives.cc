@@ -80,6 +80,7 @@ const char* ncclProtoToString(int proto) {
   }
 }
 
+thread_local std::stack<ncclP2pInfo_t> g_ncclParentP2pStack;
 NCCL_API(ncclResult_t, ncclAllGather, const void* sendbuff, void* recvbuff, size_t sendcount,
     ncclDataType_t datatype, ncclComm_t comm, cudaStream_t stream);
 
@@ -186,10 +187,12 @@ ncclResult_t ncclAllToAll_impl(const void* sendbuff, void* recvbuff, size_t coun
     NCCLCHECK(ncclCommCount(comm, &nRanks));
     if (count == 0) return ncclSuccess;
     NCCLCHECK(ncclGroupStart());
+    pushParentP2p(P2pAllToAll);
     for (int r=0; r<nRanks; r++) {
       NCCLCHECK(ncclSend(((char*)sendbuff)+r*rankOffset, count, datatype, r, comm, stream));
       NCCLCHECK(ncclRecv(((char*)recvbuff)+r*rankOffset, count, datatype, r, comm, stream));
     }
+    popParentP2p();
     NCCLCHECK(ncclGroupEnd());
     return ncclSuccess;
   }
@@ -320,11 +323,13 @@ ncclResult_t ncclGather_impl(const void* sendbuff, void* recvbuff, size_t sendco
     int rank;
     NCCLCHECK(ncclCommUserRank(comm, &rank));
     NCCLCHECK(ncclGroupStart());
+    pushParentP2p(P2pGather);
     if (rank == root) {
       for (int r=0; r<nRanks; r++)
         NCCLCHECK(ncclRecv(((char*)recvbuff)+r*rankOffset, sendcount, datatype, r, comm, stream));
     }
     NCCLCHECK(ncclSend(sendbuff, sendcount, datatype, root, comm, stream));
+    popParentP2p();
     NCCLCHECK(ncclGroupEnd());
     return ncclSuccess;
 }
@@ -431,11 +436,13 @@ ncclResult_t ncclScatter_impl(const void* sendbuff, void* recvbuff, size_t recvc
     int rank;
     NCCLCHECK(ncclCommUserRank(comm, &rank));
     NCCLCHECK(ncclGroupStart());
+    pushParentP2p(P2pScatter);
     if (rank == root) {
       for (int r=0; r<nRanks; r++)
         NCCLCHECK(ncclSend(((char*)sendbuff)+r*rankOffset, recvcount, datatype, r, comm, stream));
     }
     NCCLCHECK(ncclRecv(recvbuff, recvcount, datatype, root, comm, stream));
+    popParentP2p();
     NCCLCHECK(ncclGroupEnd());
     return ncclSuccess;
 }
