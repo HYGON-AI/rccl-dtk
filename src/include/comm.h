@@ -329,7 +329,7 @@ struct ncclKernelPlanner {
   //////////////////////////////////////////////////////////////////////////////
 
   struct Peer {
-    bool sendSeen, recvSeen;
+    uint64_t sendSeenMask, recvSeenMask;
     struct ncclIntruQueue<struct ncclTaskP2p, &ncclTaskP2p::next> sendQueue;
     struct ncclIntruQueue<struct ncclTaskP2p, &ncclTaskP2p::next> recvQueue;
   };
@@ -482,6 +482,8 @@ struct ncclComm {
   // Channels (per peer) for p2p
   int p2pnChannels;
   int p2pnChannelsPerPeer;
+  int oriP2pnChannelsPerPeer;
+  bool autoPerPeerOn;
 
   // Should this comm allocate LL buffers for network P2P connections?
   bool allocP2pNetLLBuffers;

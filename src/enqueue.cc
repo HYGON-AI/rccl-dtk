@@ -21,6 +21,7 @@
 #include "transport.h"
 #include "common.h"
 #include "api_trace.h"
+#include "collectives.h"
 #include <cstring> // std::memcpy
 #include <cinttypes> // PRIx64
 
@@ -904,7 +905,8 @@ static ncclResult_t addP2pToPlan(
     }
   }
 
-  ssize_t thresholdLL = nChannelsMax*ncclParamP2pLLThreshold();
+  //ssize_t thresholdLL = nChannelsMax*ncclParamP2pLLThreshold();
+  ssize_t thresholdLL = ncclParamP2pLLThreshold();
   ssize_t paramChunkSize = ncclParamChunkSize();
   // Arrays indexed by dir where recv=0, send=1:
   int nChannels[2];
@@ -969,7 +971,7 @@ static ncclResult_t addP2pToPlan(
         partSize = divUp(bytes[dir], nChannels[dir]);
       }
     }
-    // UserConfig’s nChannels
+    // UserConfig's nChannels
     if (p2p && p2p->UserChannels) {
       if(p2p->UserChannels <= comm->p2pnChannelsPerPeer){
         if(nChannels[dir]) nChannels[dir] = p2p->UserChannels;
@@ -2166,6 +2168,47 @@ static ncclResult_t hostToDevRedOp(
   return ncclSuccess;
 }
 
+static const int PerPeerChannelsConfig[][6] = {
+  // Index: [SingleNodeAlltoAll, SingleNodeGather, SingleNodeScatter, MultiNodesAlltoAll, MultiNodesGather, MultiNodesScatter]
+  {2,2,2,1,1,2},   // 0: 1B-8KB
+  {4,4,4,1,1,2},   // 1: 16KB
+  {4,4,4,1,1,2},   // 2: 32KB
+  {4,4,4,1,1,2},   // 3: 64KB
+  {4,4,4,1,1,1},   // 4: 128KB
+  {4,4,4,1,2,1},   // 5: 256KB
+  {4,4,16,1,1,1},  // 6: 512KB
+  {4,4,16,1,1,1},  // 7: 1MB
+  {16,4,16,1,2,2}, // 8: 2MB
+  {16,2,16,1,1,2}, // 9: 4MB
+  {16,2,16,1,1,2}, // 10: 8MB
+  {16,2,16,1,1,2}, // 11: 16MB
+  {16,2,16,1,1,2}, // 12: 32MB
+  {16,16,16,1,1,2} // 13: 64MB
+};
+
+static int getP2pPerPeerChannels(struct ncclComm* comm, struct ncclInfo* info, ncclP2pInfo_t parentP2p) {
+  ssize_t totalSize = info->count * ncclTypeSize(info->datatype);
+  int index = log2i(totalSize >> 13);
+  index = index < 0 ? 0 : (index >= 13 ? 13 : index);
+  int arrayIndex;
+  if (comm->nNodes == 1) {
+    switch (parentP2p) {
+      case P2pAllToAll: arrayIndex = 0; break;
+      case P2pGather:   arrayIndex = 1; break;
+      case P2pScatter:  arrayIndex = 2; break;
+      default: return comm->oriP2pnChannelsPerPeer;
+    }
+  } else {
+    switch (parentP2p) {
+      case P2pAllToAll: arrayIndex = 3; break;
+      case P2pGather:   arrayIndex = 4; break;
+      case P2pScatter:  arrayIndex = 5; break;
+      default: return comm->oriP2pnChannelsPerPeer;
+    }
+  }
+  return PerPeerChannelsConfig[index][arrayIndex];
+}
+
 // Converts `info` to a task and adds it to `comm->planner`. The exception is with
 // single rank communicators, collectives are issued as `ncclMemcpyAsync`s and
 // thus don't need a task.
@@ -2176,7 +2219,6 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
     int peer = info->root;
     ssize_t nBytes = info->count*ncclTypeSize(info->datatype);
     bool isSendNotRecv = info->coll == ncclFuncSend;
-
     // Must be in thread local group before tasks can be alloc'd in `comm->memScoped`.
     ncclGroupCommJoin(info->comm);
     struct ncclTaskP2p* p2p = ncclMemoryStackAlloc<struct ncclTaskP2p>(&comm->memScoped);
@@ -2189,11 +2231,25 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
       isSendNotRecv ? &planner->peers[peer].sendQueue : &planner->peers[peer].recvQueue,
       p2p);
     planner->nTasksP2p += 1;
-
+    if (comm->autoPerPeerOn) {
+      ncclP2pInfo_t parentP2p = currentParentP2p();
+      bool useAutoTuning = parentP2p != P2pInvalid;
+      if (useAutoTuning) {
+        comm->p2pnChannelsPerPeer = getP2pPerPeerChannels(comm, info, parentP2p);
+        comm->devComm->p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
+      } else {
+        if (comm->p2pnChannelsPerPeer != comm->oriP2pnChannelsPerPeer) {
+          comm->p2pnChannelsPerPeer = comm->oriP2pnChannelsPerPeer;
+          comm->devComm->p2pnChannelsPerPeer = comm->oriP2pnChannelsPerPeer;
+        }
+      }   
+    }          
     // Mark channels that need pre-connect
     if (comm->rank != peer) {
-      if (!(isSendNotRecv ? planner->peers[peer].sendSeen : planner->peers[peer].recvSeen)) {
-        (isSendNotRecv ? planner->peers[peer].sendSeen : planner->peers[peer].recvSeen) = true;
+      uint64_t* seenMask = isSendNotRecv ? &planner->peers[peer].sendSeenMask : &planner->peers[peer].recvSeenMask;
+      uint64_t bit = 1ULL << (comm->p2pnChannelsPerPeer - 1);
+      if ((*seenMask & bit) == 0) {
+        *seenMask |= bit;
         int round = 0;
         while (peer != (isSendNotRecv ? comm->p2pSchedule[round].sendRank
                                       : comm->p2pSchedule[round].recvRank)) {
@@ -2231,7 +2287,6 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
   } else {
     // Empty collectives can be discarded.
     if (info->count == 0) return ncclSuccess;
-
     // Copy reduction op state from op handle into info struct here since the
     // op handle may be destroyed before ncclGroupEnd().
     struct ncclDevRedOpFull opDev;
