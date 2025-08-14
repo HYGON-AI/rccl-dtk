@@ -13,6 +13,10 @@
 #include "checks.h"
 #include "alloc.h"
 #include <stdlib.h>
+#include <vector>
+#include <string>
+#include <map>
+#include <mutex>
 #include "archinfo.h"
 
 // A few constraints to make the implementation easy
@@ -24,6 +28,14 @@
 #define NODE_TYPE_OPEN 1
 #define NODE_TYPE_CLOSE 2
 #define NODE_TYPE_SINGLE 3
+
+#define SLOT_NODE_TYPE_NONE 0
+#define SLOT_NODE_TYPE_GPU 1
+#define SLOT_NODE_TYPE_NIC 2
+
+#define SLOT_DEVICE_ID_NONE -1
+
+#define MAPPING_GPU_KEY_PREFIX "GPU_"
 
 struct ncclXmlNode {
   char name[MAX_STR_LEN+1];
@@ -43,6 +55,11 @@ struct ncclXml {
   struct ncclXmlNode nodes[1];
 };
 
+struct ncclBusIds {
+  std::vector<std::string> pcieSwitchBusId;
+  std::vector< std::map<std::string, std::string>> gpuBusId;
+  std::map<std::string, std::string> nicBusId;
+};
 /* File functions */
 #define NCCL_TOPO_XML_VERSION 2
 ncclResult_t ncclTopoGetXmlFromFile(const char* xmlTopoFile, struct ncclXml* xml, int warn);
@@ -64,6 +81,74 @@ ncclResult_t ncclTopoConvertXml(struct ncclXml* xml, uintptr_t base, int exp);
 
 ncclResult_t ncclTopoGetStrFromSys(const char* path, const char* fileName, char* strValue);
 
+/* Get XML from mapping file  */
+ncclResult_t ncclTopoGetXmlFromMappingFile(struct ncclComm* comm, struct ncclXml* xml);
+
+/* Remove all node by name */
+ncclResult_t ncclxmlRemoveAllNodeByName(struct ncclXml* xml,const char* nodeName);
+
+/*  function for handling Xml tags of the mapping file */
+ncclResult_t ncclTopoXmlGraphLoadMappingSystem(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head);
+
+ncclResult_t ncclTopoXmlGraphLoadMappingGroup(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head);
+
+ncclResult_t ncclTopoXmlGraphLoadMappingCpu(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head);
+
+ncclResult_t ncclTopoXmlGraphLoadMappingPci(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head);
+
+ncclResult_t ncclTopoXmlGraphLoadMappingGpu(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head);
+
+ncclResult_t ncclTopoXmlGraphLoadMappingNic(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head);
+
+ncclResult_t ncclTopoXmlGraphLoadMappingSlot(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head);
+
+/* find net node by net name, or create net node if not exist */
+ncclResult_t ncclTopoMappingGetNetNode(struct ncclXml* xml, struct ncclXmlNode* parent, const char* netName ,struct ncclXmlNode** netNode);
+
+/* Collect busIds */
+ncclResult_t collectNodesBusIds(struct ncclComm* comm);
+
+/* Collect environmental information and assemble it into an environmental information string */
+class envTypeInfo {
+public:
+    static envTypeInfo* instance(struct ncclComm* comm){
+        std::call_once(init_flag,[&comm](){
+            _inst = new(std::nothrow) envTypeInfo();
+            if (!_inst) return;
+            _inst->_init(comm);
+        });
+        return _inst;
+    }
+
+    std::string getEnvTypeInfoStr() const { return envTypeStr; }
+
+    envTypeInfo(const envTypeInfo&) = delete;
+    envTypeInfo& operator=(const envTypeInfo&) = delete;
+
+private:
+    envTypeInfo() = default;
+    ~envTypeInfo() = default;
+    inline std::string getPrefixFromNicName(const std::string& nicName);
+    int GetNicInfoFromSys(std::string& nicType);
+    void _init(struct ncclComm* comm);
+
+    std::string  gpuGcn;
+    std::string  cpuArch;
+    std::string  cpuVendor;
+    std::string  nicType;
+    uint32_t gpuCount{0};
+    int nicCount{0};
+    std::string  envTypeStr;
+
+    static std::once_flag init_flag;
+    static envTypeInfo*   _inst;
+};
+
+/*  Add node and copy attr from srcNode if needed */
+ncclResult_t XmlAddAndCopyNode(struct ncclXml* xml, struct ncclXmlNode* parent, const char* subNodeName, struct ncclXmlNode** subNode,struct ncclXmlNode* srcNode=NULL, bool isCopy=false);
+
+/* copy Attr by name */
+ncclResult_t xmlCopyAttr(struct ncclXmlNode* destNode, struct ncclXmlNode* srcNode,const char* attrName);
 /**************/
 /* XML Struct */
 /* Functions  */

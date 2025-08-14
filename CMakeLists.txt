@@ -940,6 +940,11 @@ file(COPY tools/msccl-unit-test-algorithms DESTINATION ${PROJECT_BINARY_DIR})
 rocm_install(DIRECTORY ${PROJECT_BINARY_DIR}/msccl-algorithms DESTINATION ${CMAKE_INSTALL_DATADIR}/rccl)
 rocm_install(DIRECTORY ${PROJECT_BINARY_DIR}/msccl-unit-test-algorithms DESTINATION ${CMAKE_INSTALL_DATADIR}/rccl)
 
+file(COPY tools/built-in-topo DESTINATION ${PROJECT_BINARY_DIR})
+set (BUILT_IN_XML_SOURCE_DIR "${PROJECT_BINARY_DIR}/built-in-topo")
+set (BUILT_IN_XML_MAPPING_FILE "${BUILT_IN_XML_SOURCE_DIR}/topo_mapping_default.xml")
+rocm_install(FILES ${BUILT_IN_XML_MAPPING_FILE} DESTINATION ${ROCM_PATH}/rccl/lib)
+
 rocm_export_targets(
   NAMESPACE roc::
   TARGETS   rccl

@@ -813,10 +813,10 @@ ncclResult_t ncclTopoGetSystem(struct ncclComm* comm, struct ncclTopoSystem** sy
   if (xmlTopoFile) {
     INFO(NCCL_ENV, "NCCL_TOPO_FILE set by environment to %s", xmlTopoFile);
     NCCLCHECK(ncclTopoGetXmlFromFile(xmlTopoFile, xml, 1));
-  } else {
-    // Try default XML topology location
-    NCCLCHECK(ncclTopoGetXmlFromFile("/var/run/nvidia-topologyd/virtualTopology.xml", xml, 0));
+  } else { 
+    NCCLCHECK(ncclTopoGetXmlFromMappingFile(comm, xml));
   }
+
   if (xml->maxIndex == 0) {
     // Create top tag
     struct ncclXmlNode* top;

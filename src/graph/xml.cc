@@ -11,15 +11,24 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <float.h>
+#include <libgen.h>
+#include <dirent.h> 
 #include "core.h"
 #include "nvmlwrap.h"
 #include "xml.h"
 #include "rocm_smi_wrap.h"
 #include "archinfo.h"
+#include "comm.h"
+#include "param.h"
 #if defined(__x86_64__)
 #include <cpuid.h>
 #endif
 
+static bool isTopoMappingDefaultFile = true;
+static struct ncclBusIds  g_busIdSet;
+static struct envTypeInfo* g_envTypeInfo = NULL;
+std::once_flag envTypeInfo::init_flag;
+envTypeInfo*   envTypeInfo::_inst = NULL;
 /*******************/
 /* XML File Parser */
 /*******************/
@@ -1019,7 +1028,7 @@ ncclResult_t ncclTopoGetSubsystem(const char* sysPath, char* subSys) {
 
 ncclResult_t ncclTopoFillNet(struct ncclXml* xml, const char* pciPath, const char* netName, struct ncclXmlNode** netNode) {
   NCCLCHECK(xmlFindTagKv(xml, "net", netNode, "name", netName));
-  if (*netNode != NULL) return ncclSuccess;
+  //if (*netNode != NULL) return ncclSuccess;
 
   const char* pciSysPath = pciPath;
   if (pciSysPath) {
@@ -1052,10 +1061,11 @@ ncclResult_t ncclTopoFillNet(struct ncclXml* xml, const char* pciPath, const cha
     NCCLCHECK(xmlAddNode(xml, parent, "nic", &nicNode));
   }
 
-  // We know that this net does not exist yet (we searched for it at the
-  // beginning of this function), so we can add it.
-  NCCLCHECK(xmlAddNode(xml, nicNode, "net", netNode));
-  NCCLCHECK(xmlSetAttr(*netNode, "name", netName));
+  
+  if (*netNode == NULL) {
+    NCCLCHECK(xmlAddNode(xml, nicNode, "net", netNode));
+    NCCLCHECK(xmlSetAttr(*netNode, "name", netName));
+  }
   return ncclSuccess;
 }
 
@@ -1144,3 +1154,750 @@ ncclResult_t ncclTopoGetXmlGraphFromFile(const char* xmlGraphFile, struct ncclXm
   fclose(file);
   return ncclSuccess;
 }
+
+NCCL_PARAM(BasicTopoDumpFileRank, "TOPO_DUMP_FILE_RANK", 0);
+
+/*
+ * 函数功能：基础拓扑生成功能入口函数，内部逻辑如下：
+            1.从NCCL_TOPO_MAPPING_FILE或ROCM_PATH获取映射文件路径；
+            2.收集全部pcieSwitch、nic、gpu节点的busid，保存到全局的g_busIdSet中
+            3.收集环境信息，用于后续默认映射文件读取的组名辨别
+            4.解析文件，将xml内容解析到ncclXml结构体对象中；
+              a.解析xml文件；
+              b.遇到gpu和nic节点则填充缺失的pci层级;
+              c.填充pci层级缺失的busId属性;
+            5.移除ncclXml结构体对象中name为group的节点;
+ * 参数说明：
+ *   comm: 输入参数，通讯组指针
+ *   xml: 输出参数，XML解析上下文结构体
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t ncclTopoGetXmlFromMappingFile(struct ncclComm* comm, struct ncclXml* xml) {
+  char filePath[PATH_MAX] = {};
+  const char* xmlMappingFile = ncclGetEnv("NCCL_TOPO_MAPPING_FILE");
+  if (xmlMappingFile) {
+    isTopoMappingDefaultFile = false;
+    snprintf(filePath, sizeof(filePath),"%s", xmlMappingFile);
+  } else {
+    char* rocmPath = getenv("ROCM_PATH");
+    if (rocmPath != NULL) {
+      snprintf(filePath, sizeof(filePath),"%s%s", rocmPath, "/rccl/lib/topo_mapping_default.xml");
+      isTopoMappingDefaultFile = true;
+    } else {
+      INFO(NCCL_ENV, "No topo mapping file has been specified.");
+      return ncclSuccess;
+    }
+  }
+
+  //Collect all devices busids
+  static std::once_flag init_flag;
+  std::call_once(init_flag,[&comm](){ NCCLCHECK(collectNodesBusIds(comm)); });
+
+  //Collect environmental information
+  g_envTypeInfo = envTypeInfo::instance(comm);
+  if (!g_envTypeInfo) {
+    WARN("Unable to complete the environmental inspection, the generation of the basic topology has been terminated.");
+    return ncclSuccess;
+  }
+  INFO(NCCL_GRAPH, "After environmental exploration, the environmental key word is %s", g_envTypeInfo->getEnvTypeInfoStr().c_str());
+  
+  //Parse the XML file and fill in the "busid" attribute
+  FILE* file = fopen(filePath, "r");
+  if (file == NULL) {
+    WARN("Could not open XML topology mapping file %s : %s", filePath, strerror(errno));
+    return ncclSuccess;
+  }
+  INFO(NCCL_GRAPH, "Loading topology mapping file %s", filePath);
+  struct xmlHandler handlers[] = { { "system", ncclTopoXmlGraphLoadMappingSystem } };
+  xml->maxIndex = 0;
+  NCCLCHECK(xmlLoadSub(file, xml, NULL, handlers, 1));
+  fclose(file);
+
+  // remove group\slot node if exists
+  NCCLCHECK(ncclxmlRemoveAllNodeByName(xml,"group"));
+  NCCLCHECK(ncclxmlRemoveAllNodeByName(xml,"slot"));
+
+  const char* xmlTopoFile = ncclGetEnv("NCCL_BASIC_TOPO_DUMP_FILE");
+  if (xmlTopoFile && comm->rank == ncclParamBasicTopoDumpFileRank()) {
+    INFO(NCCL_ENV, "NCCL_BASIC_TOPO_DUMP_FILE set by environment to %s", xmlTopoFile);
+    NCCLCHECK(ncclTopoDumpXmlToFile(xmlTopoFile, xml));
+  }
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：删除全部节点名为nodeName的节点
+ * 参数说明：
+ *   xml: 输出参数，XML解析上下文结构体，节点集合；
+ *   nodeName：输入参数，节点名
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t ncclxmlRemoveAllNodeByName(struct ncclXml* xml,const char* nodeName) {
+  if ( !xml || !nodeName) {
+    return ncclSuccess;
+  }
+
+  struct ncclXmlNode* node;
+  NCCLCHECK(xmlFindTag(xml,nodeName,&node));
+  while(node) {
+    struct ncclXmlNode* parentNode = node->parent;
+    if(parentNode) {
+      for(int i = 0; i < node->nSubs; i++) {
+        if (parentNode->nSubs == MAX_SUBS) {
+            WARN("Error : XML parser is limited to %d subnodes", MAX_SUBS);
+            return ncclInternalError;
+        }
+        parentNode->subs[parentNode->nSubs++] = node->subs[i];
+        node->subs[i]->parent = parentNode;
+      }
+    }
+    NCCLCHECK(xmlRemoveNode(node));
+    memset(node, 0, sizeof(struct ncclXmlNode));
+    NCCLCHECK(xmlFindTag(xml,nodeName,&node));
+  }
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：解析最外层system层，使用ncclTopoXmlGraphLoadGroup处理group标签
+ * 参数说明：
+ *   file: 输入参数，配置文件
+ *   xml: 输出参数，XML解析上下文结构体
+ *   head：父节点
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t ncclTopoXmlGraphLoadMappingSystem(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head) {
+  int version;
+  NCCLCHECK(xmlGetAttrInt(head, "version", &version));
+  if (version != NCCL_TOPO_XML_VERSION) {
+    WARN("XML Topology mapping has wrong version %d, %d needed", version, NCCL_TOPO_XML_VERSION);
+    return ncclInvalidUsage;
+  }
+
+  struct xmlHandler handlers[] = { { "group", ncclTopoXmlGraphLoadMappingGroup } };
+  NCCLCHECK(xmlLoadSub(file, xml, head, handlers, 1));
+  return ncclSuccess;
+}
+
+
+bool containsKeyWord(const std::string& groupName, const std::string& keyWord) {
+    std::size_t start = 0;
+    while (true) {
+        std::size_t end = groupName.find('|', start);
+        std::string token = groupName.substr(start, end - start);
+        if (token == keyWord) return true;
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return false;
+}
+/*
+ * 函数功能：解析group层，使用ncclTopoXmlGraphLoadMappingCpu处理cpu标签，额外的逻辑如下：
+            1.当使用默认映射配置文件时，尝试从g_envTypeInfo中获取当前环境标签，若能获取则以环境标签为group name；
+            2.当使用自定义映射配置文件时，解析第一个合格的group；
+            注：group标签要求必须有name属性
+ * 参数说明：
+ *   file: 输入参数，配置文件
+ *   xml: 输出参数，XML解析上下文结构体
+ *   head：父节点
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t ncclTopoXmlGraphLoadMappingGroup(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head) {
+  const char* name = NULL;
+  std::string xmlMappingGroupName="";
+  thread_local bool isGotGroup = false;
+  
+  // 始终只解析一个组
+  if(isGotGroup) {
+    NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
+    return ncclSuccess;
+  }
+
+  NCCLCHECK(xmlGetAttr(head, "name", &name));
+  if (name != NULL) {
+    if (isTopoMappingDefaultFile) {
+      xmlMappingGroupName = g_envTypeInfo != NULL ? g_envTypeInfo->getEnvTypeInfoStr() : "";
+    }
+
+    if(!isTopoMappingDefaultFile || containsKeyWord(name, xmlMappingGroupName)) {
+      INFO(NCCL_GRAPH, "parseing topology mapping group: %s", name);
+      struct xmlHandler handlers[] = { { "cpu", ncclTopoXmlGraphLoadMappingCpu } };
+      NCCLCHECK(xmlLoadSub(file, xml, head, handlers, 1));
+      isGotGroup = true;
+    } else {
+      INFO(NCCL_GRAPH, "skip topology mapping group: %s ,expected group name is %s", name,xmlMappingGroupName.c_str());
+      NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
+    }
+  } else {
+    INFO(NCCL_GRAPH, "Ignoring topology unnamed mapping group:");
+    NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
+  }
+
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：解析cpu层，使用ncclTopoXmlGraphLoadMappingPci处理pci标签
+ * 参数说明：
+ *   file: 输入参数，配置文件
+ *   xml: 输出参数，XML解析上下文结构体
+ *   head：父节点
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t ncclTopoXmlGraphLoadMappingCpu(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head) {
+  struct xmlHandler handlers[] = { { "pci", ncclTopoXmlGraphLoadMappingPci } };
+  NCCLCHECK(xmlLoadSub(file, xml, head, handlers, 1));
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：解析pci层：
+          （1）当判断为pcieSwtich节点时，从全局变量g_busIdSet中获取并设置当前pci节点busid属性
+          （2）传递gpu、nic和slot标签处理函数
+ * 参数说明：
+ *   file: 输入参数，配置文件
+ *   xml: 输出参数，XML解析上下文结构体
+ *   head：父节点
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t ncclTopoXmlGraphLoadMappingPci(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head) {
+  thread_local int pcieSwitchCount = 0;
+  //set busid for pcieSwtich
+  if(head->parent && strcmp(head->parent->name,"cpu") == 0  && pcieSwitchCount < g_busIdSet.pcieSwitchBusId.size()) {
+    NCCLCHECK(xmlSetAttr(head, "busid",g_busIdSet.pcieSwitchBusId[pcieSwitchCount++].c_str()));
+  }
+
+  struct xmlHandler handlers[] = { { "gpu", ncclTopoXmlGraphLoadMappingGpu }, { "nic", ncclTopoXmlGraphLoadMappingNic}, { "slot", ncclTopoXmlGraphLoadMappingSlot}  };
+  NCCLCHECK(xmlLoadSub(file, xml, head, handlers, 3));
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：解析gpu层：
+          （1）为gpu节点填充两个pci父节点(新增两个节点，将其作为pcie(inner)和gpu节点，原gpu节点转换为pcie(middle)节点，完善层级结构)
+          （2）按照gpu节点的dev属性拼接key，从全局变量g_busIdSet中查找busid并设置两个pci父节点的busid属性
+ * 参数说明：
+ *   file: 输入参数，配置文件
+ *   xml: 输出参数，XML解析上下文结构体
+ *   head：父节点
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t ncclTopoXmlGraphLoadMappingGpu(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head) {
+  // before: pcie(top)->gpu
+  // after: pcie(top)->pcie(middle)->pcie(inner)->gpu
+
+  // pcie:middle
+  struct ncclXmlNode* middlePciNode = head;
+
+  // pcie:inner
+  struct ncclXmlNode* innerPciNode;
+  // create pci node
+  NCCLCHECK(XmlAddAndCopyNode(xml, middlePciNode, "pci", &innerPciNode));
+  innerPciNode->type = NODE_TYPE_CLOSE;
+
+  // gpu
+  struct ncclXmlNode* gpuNode;
+  // create gpu node and copy attrs from middlePciNode(head)
+  NCCLCHECK(XmlAddAndCopyNode(xml, innerPciNode, "gpu", &gpuNode, middlePciNode, true));
+  gpuNode->type = NODE_TYPE_SINGLE;
+
+  // reset pcie:middle
+  strncpy(middlePciNode->name, "pci", sizeof(middlePciNode->name)-1);
+  memset(middlePciNode->attrs, 0, sizeof(middlePciNode->attrs));
+  middlePciNode->nAttrs = 0;
+  middlePciNode->type = NODE_TYPE_CLOSE;
+
+  // set busid for pcie(middle)、pcie(inner)
+  int dev;
+  NCCLCHECK(xmlGetAttrIntDefault(gpuNode, "dev", &dev, -1));
+  if(-1 != dev) { 
+    char gpuKey[MAX_STR_LEN] = {};
+    snprintf(gpuKey, sizeof(gpuKey),"%s%d", MAPPING_GPU_KEY_PREFIX, dev);
+    // only set two gpus busid
+    if(g_busIdSet.gpuBusId.size() >= 2 && g_busIdSet.gpuBusId[1].find(gpuKey) != g_busIdSet.gpuBusId[1].end() && g_busIdSet.gpuBusId[0].find(gpuKey) != g_busIdSet.gpuBusId[0].end()) {
+      NCCLCHECK(xmlSetAttr(innerPciNode, "busid", g_busIdSet.gpuBusId[0][gpuKey].c_str()));
+      NCCLCHECK(xmlSetAttr(middlePciNode, "busid", g_busIdSet.gpuBusId[1][gpuKey].c_str()));
+      // remove dev Attr
+      NCCLCHECK(xmlUnsetAttr(gpuNode, "dev"));
+    } else {
+      WARN("Error in the busID of the GPU or the current GPU[%d] cannot be found.",dev);
+    }
+  } else {
+    WARN("gpu dev attr no exit or out of range.");
+  }
+
+  //set link_speed\link_width for pcie(middle)、pcie(inner) if exists
+  char attrs[][MAX_STR_LEN] = {"link_speed","link_width"};
+  for (int i=0; i < (sizeof(attrs)/sizeof(attrs[0])); i++) {
+    NCCLCHECK(xmlCopyAttr(innerPciNode,gpuNode,attrs[i]));
+    NCCLCHECK(xmlCopyAttr(middlePciNode,gpuNode,attrs[i]));
+    NCCLCHECK(xmlUnsetAttr(gpuNode, attrs[i]));
+  }
+  
+  NCCLCHECK(xmlLoadSub(file, xml, gpuNode, NULL, 0));
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：解析nic层，当多个网卡的busid相同时，需要在一个nic下生成多个net标签，对此将分类讨论：
+            1.按当前nic标签的网卡名查找busid：
+            2.若没有当前busid的pci标签时，进行结构填充：
+              （1）为nic节点填充一个pci父节点(新增一个nic节点，将原nic节点内容复制到新节点后，原nic节点改为pci节点)
+              （2）为nic节点填充一个net子节点；
+              （3）属性设置：设置pci父节点的busid属性、若存在则为pci父节点填充link_speed\link_width属性，若存在则为net子节点填充speed属性；
+            3.若当前busid的pci标签已存在。则仅新增net子节点，并尝试填充net子节点的speed属性；
+ * 参数说明：
+ *   file: 输入参数，配置文件
+ *   xml: 输出参数，XML解析上下文结构体
+ *   head：父节点
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t ncclTopoXmlGraphLoadMappingNic(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head) {
+  std::string busId;
+  std::string nicNameStr;
+  const char* nicName = NULL;
+  NCCLCHECK(xmlGetAttr(head, "id", &nicName));
+  if(NULL != nicName && g_busIdSet.nicBusId.find(nicName) != g_busIdSet.nicBusId.end()) {
+    nicNameStr = nicName;
+    busId = g_busIdSet.nicBusId[nicName];
+    // remove id Attr
+    NCCLCHECK(xmlUnsetAttr(head, "id"));
+  } else {
+    WARN("Nic dev attr no exit or the current NIC[%s] cannot be found.",nicName!=NULL?nicName:"NULL");
+    NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
+    return ncclSuccess;
+  }
+
+  // find if pci node exists
+  struct ncclXmlNode* innerPciNode;
+  struct ncclXmlNode* nicNode;
+  struct ncclXmlNode* netNode;
+  NCCLCHECK(xmlFindTagKv(xml, "pci", &innerPciNode, "busid", busId.c_str()));
+  if(NULL == innerPciNode) {
+    // fill topo nodes
+      // before: pcie(top)->nic
+      // after: pcie(top)->pcie(inner)->nic->net
+
+    // pcie:inner
+    struct ncclXmlNode* innerPciNode = head;
+    
+    // nic
+    NCCLCHECK(XmlAddAndCopyNode(xml, innerPciNode, "nic", &nicNode, head, true));
+    nicNode->type = NODE_TYPE_CLOSE;
+   
+    // reset pcie:inner
+    strncpy(innerPciNode->name, "pci", sizeof(innerPciNode->name)-1);
+    memset(innerPciNode->attrs, 0, sizeof(innerPciNode->attrs));
+    innerPciNode->nAttrs = 0;
+    innerPciNode->type = NODE_TYPE_CLOSE;
+    NCCLCHECK(xmlSetAttr(innerPciNode, "busid", busId.c_str()));
+
+    //set link_speed\link_width for pcie(inner) if exists
+    char attrs[][MAX_STR_LEN] = {"link_speed","link_width"};
+    for (int i=0; i < (sizeof(attrs)/sizeof(attrs[0])); i++) {
+      NCCLCHECK(xmlCopyAttr(innerPciNode,nicNode,attrs[i]));
+      NCCLCHECK(xmlUnsetAttr(nicNode, attrs[i]));
+    }
+
+    // add net node
+    NCCLCHECK(ncclTopoMappingGetNetNode(xml,nicNode,nicNameStr.c_str(),&netNode));
+    // copy speed attr from nic node if exists
+    NCCLCHECK(xmlCopyAttr(netNode,nicNode,"speed"));
+    NCCLCHECK(xmlUnsetAttr(nicNode, "speed"));
+  } else {
+    // find nic node
+    NCCLCHECK(xmlGetSub(innerPciNode,"nic",&nicNode));
+    if(nicNode == NULL){
+      WARN("The PCI node with busid %s was found, but no NIC sub-node was found.",busId.c_str());
+      NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
+      return ncclSuccess;
+    }
+
+    // add net node if no exist
+    NCCLCHECK(ncclTopoMappingGetNetNode(xml,nicNode,nicNameStr.c_str(),&netNode));
+    // copy speed attr from head node if exists
+    NCCLCHECK(xmlCopyAttr(netNode,head,"speed"));
+
+    // Remove the head nodes that will not be used
+    NCCLCHECK(xmlRemoveNode(head));
+    memset(head, 0, sizeof(struct ncclXmlNode));
+  }
+  
+  NCCLCHECK(xmlLoadSub(file, xml, netNode, NULL, 0));
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：按网卡名称查找net节点，若找到则返回该节点，否则新增一个net节点并设置name属性。用于nic标签处理时的net节点获取
+ * 参数说明：
+ *   xml: 输入参数，XML解析上下文结构体
+ *   parent: 输入参数，父节点，若无法找到net节点则在父节点下新增一个net节点
+ *   netNameAttr：输入参数，网卡名（如mlx5_0\shca_0）,即net节点的name属性值
+ *   netNode：输出参数，net节点
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t ncclTopoMappingGetNetNode(struct ncclXml* xml, struct ncclXmlNode* parent, const char* netNameAttr ,struct ncclXmlNode** netNode) {
+  if(!xml || !parent || !netNameAttr || !netNode) return ncclSuccess;
+  
+  // add net node if not exist
+  NCCLCHECK(xmlGetSubKv(parent, "net", netNode, "name", netNameAttr));
+  if(*netNode == NULL) {
+    NCCLCHECK(XmlAddAndCopyNode(xml, parent, "net", netNode));
+    (*netNode)->type = NODE_TYPE_SINGLE;
+
+    NCCLCHECK(xmlSetAttr(*netNode, "name", netNameAttr));
+  }
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：按属性名从源节点中查找属性值，并复制到目标节点。用于gpu和nic标签处理时的节点间属性拷贝
+ * 参数说明：
+ *   destNode: 输出参数，待复制属性的目标节点
+ *   srcNode: 输入参数，源节点
+ *   attrName：输入参数，属性名
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t xmlCopyAttr(struct ncclXmlNode* destNode, struct ncclXmlNode* srcNode,const char* attrName) {
+  if(!destNode || !srcNode || !attrName ) return ncclSuccess;
+
+  const char* value = NULL;
+  NCCLCHECK(xmlGetAttr(srcNode, attrName, &value));
+  if(value) {
+    NCCLCHECK(xmlSetAttr(destNode, attrName, value));
+  }
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：在parent节点下添加子节点，并按照标识拷贝源节点属性。用于gpu、nic、slot标签处理时的结构补充
+ * 参数说明：
+ *   xml: 输入参数，XML解析上下文结构体
+ *   parent: 输入参数，父节点
+ *   subNodeName：输入参数，子节点名
+ *   subNode：输出参数，新增后的子节点
+ *   srcNode：输入参数，待拷贝属性的源节点
+ *   isCopy：输入参数，是否拷贝属性标识
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t XmlAddAndCopyNode(struct ncclXml* xml, struct ncclXmlNode* parent, const char* subNodeName, struct ncclXmlNode** subNode, struct ncclXmlNode* srcNode, bool isCopy) {
+  if(!xml || !parent || !subNodeName || !subNode) {
+    WARN("XML Topology mapping has wrong, creation and replication of nodes failed");
+    return ncclInvalidUsage;
+  }
+  NCCLCHECK(xmlAddNode(xml, parent, subNodeName, subNode));
+
+  if(srcNode && isCopy) {
+    (*subNode)->nAttrs = srcNode->nAttrs;
+    for (int i=0; i<srcNode->nAttrs; i++) {
+      memcpy((*subNode)->attrs[i].key, srcNode->attrs[i].key, sizeof(srcNode->attrs[i].key));
+      memcpy((*subNode)->attrs[i].value, srcNode->attrs[i].value, sizeof(srcNode->attrs[i].value));
+    }
+  }
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：按传入的slot号，以及全局的busid集合（g_busIdSet），获取对应的设备类型和编号
+ * 参数说明：
+ *   slot: 输入参数，slot号
+ *   gpuId: 输出参数，设备GPU编号，当为SLOT_NODE_TYPE_NONE时表示非GPU设备或无法确定设备编号
+ *   nicNameList: 输出参数，设备NIC名称列表，当为空时表示非NIC设备或无法确定设备名称
+ *   classId：输出参数，设备（GPU、NIC）类型，当为SLOT_DEVICE_ID_NONE时表示无法确定设备类型
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t ncclTopoGetSlotInfo(int slot, int& gpuId, std::vector<std::string>& nicNameList, int& classId) {
+  classId = SLOT_NODE_TYPE_NONE;
+  gpuId = SLOT_DEVICE_ID_NONE;
+  // Get the bus ID by slot number.
+  char addressFilePath[PATH_MAX] = {};
+  snprintf(addressFilePath,sizeof(addressFilePath),"/sys/bus/pci/slots/%d/address",slot);
+  FILE* file = fopen(addressFilePath, "r");
+  if (file == NULL) {
+    WARN("Could not open slot address file %s : %s", addressFilePath, strerror(errno));
+    return ncclSuccess;
+  }
+  // busid: xxxx:xx:xx.x
+  // busid prefix : xxxx:xx:xx
+  const size_t BUS_ID_PREFIX_SIZE = 10;
+  const size_t BUS_ID_BUFFER_SIZE = BUS_ID_PREFIX_SIZE + 1;
+  char busIdPrefix[BUS_ID_BUFFER_SIZE] = {};
+  size_t bytes_read = fread(busIdPrefix, 1, BUS_ID_PREFIX_SIZE, file);
+  fclose(file);
+  if (bytes_read != BUS_ID_PREFIX_SIZE) {
+    WARN("Could not read busid from address file %s", addressFilePath);
+    return ncclSuccess;
+  }
+  busIdPrefix[BUS_ID_PREFIX_SIZE] = '\0';
+
+  // Query the node by busid
+  // test nic
+  std::map<std::string, std::string>::iterator it = g_busIdSet.nicBusId.begin();
+  while(it != g_busIdSet.nicBusId.end()) {
+    if (strncmp(busIdPrefix, it->second.c_str(), BUS_ID_PREFIX_SIZE) == 0) {
+      classId = SLOT_NODE_TYPE_NIC;
+      // save all nic name that match the busid,Because it is possible that multiple nic share the same slot number.
+      nicNameList.push_back(it->first);
+    }
+    it++;
+  }
+
+  // test gpu if no nic found
+  // Start iterating from 1, skipping the innermost "busid"
+  for(int i = 1; i<g_busIdSet.gpuBusId.size() && SLOT_NODE_TYPE_NONE == classId; i++) {
+    std::map<std::string, std::string>::iterator it = g_busIdSet.gpuBusId[i].begin();
+    while(it != g_busIdSet.gpuBusId[i].end()) {
+      if (strncmp(busIdPrefix, it->second.c_str(), BUS_ID_PREFIX_SIZE) == 0) {
+        classId = SLOT_NODE_TYPE_GPU;
+        sscanf(it->first.c_str(), MAPPING_GPU_KEY_PREFIX"%d", &gpuId);
+        break;
+      }
+      it++;
+    }
+  }
+
+  switch (classId)
+  {
+  case SLOT_NODE_TYPE_GPU:
+    INFO(NCCL_GRAPH, "slot id:%d - gpu dev:%d\n",slot,gpuId);
+    break;
+  case SLOT_NODE_TYPE_NIC:
+  {
+    std::string nicNameStr;
+    for (int i = 0; i < nicNameList.size(); i++){
+      nicNameStr+=" | " +nicNameList[i];
+    }
+    INFO(NCCL_GRAPH, "slot id:%d - nic id:%s\n",slot,nicNameStr.c_str());
+    break;
+  }
+  default:
+    WARN("slot id:%d - not found\n",slot);
+    break;
+  }
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：解析slot标签，读取slot的id属性，并按slot id确定的设备类型和编号调用对应的设备标签处理函数（ncclTopoXmlGraphLoadMappingGpu，ncclTopoXmlGraphLoadMappingNic）
+ * 参数说明：
+ *   file: 输入参数，配置文件
+ *   xml: 输出参数，XML解析上下文结构体
+ *   head：父节点
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t ncclTopoXmlGraphLoadMappingSlot(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head) {
+  int slotId = 0;
+  NCCLCHECK(xmlGetAttrIntDefault(head, "id", &slotId, -1));
+  if(-1 == slotId) {
+    WARN( "Cannot get slot id from xml file.");
+    NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
+    return ncclSuccess;
+  }
+
+  // Get the dev info by slot number.
+  int gpuId = SLOT_DEVICE_ID_NONE,classId=SLOT_NODE_TYPE_NONE;
+  std::vector<std::string> nicNameList;
+  NCCLCHECK(ncclTopoGetSlotInfo(slotId, gpuId, nicNameList, classId));
+
+  // Distribute by type
+  if(SLOT_NODE_TYPE_GPU == classId) {
+    // gpu type
+    NCCLCHECK(xmlSetAttrInt(head,"dev",gpuId));
+    NCCLCHECK(xmlUnsetAttr(head,"id"));
+    NCCLCHECK(ncclTopoXmlGraphLoadMappingGpu(file,xml,head));
+  } else if(SLOT_NODE_TYPE_NIC == classId) { 
+    // nic type
+    // multiple network cards may share the same slot number,need to be set up one by one
+    for ( int i = 0; i < nicNameList.size(); i++) {
+      //if not last one,then create new nic node and copy all attrs to simulate multiple NIC labels.
+      struct ncclXmlNode* nicNode;
+      if(i != nicNameList.size()-1){
+        NCCLCHECK(XmlAddAndCopyNode(xml, head->parent, "nic", &nicNode, head, true));
+        nicNode->type = NODE_TYPE_SINGLE;
+      } else {
+        nicNode = head;
+      }
+      NCCLCHECK(xmlSetAttr(nicNode,"id",nicNameList[i].c_str()));
+      NCCLCHECK(ncclTopoXmlGraphLoadMappingNic(file,xml,nicNode));
+    }
+  } else {
+    // none type
+    WARN("Cannot turn the slot number[%d] into a GPU or NIC dev.",slotId);
+    NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
+  }
+
+  return ncclSuccess;
+}
+
+/*
+ * 函数功能：收集全部pcieSwitch、nic、gpu节点的busid
+ * 参数说明：
+ *   comm: 输入参数，通讯组指针
+ *   busIds: 输出参数，busid集合对象
+ * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
+ */
+ncclResult_t collectNodesBusIds(struct ncclComm* comm) {
+  //gpu
+  g_busIdSet.gpuBusId.emplace_back();
+  uint32_t deviceCnt = 0;
+  NCCLCHECK(rocm_smi_getNumDevice(&deviceCnt));
+  for (uint32_t i = 0; i < deviceCnt; i++)
+  {
+    char innerBusId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE] = {};
+    NCCLCHECK(rocm_smi_getDevicePciBusIdString(i, innerBusId, sizeof(innerBusId)));
+    std::string gpuKey = MAPPING_GPU_KEY_PREFIX+std::to_string(i);
+    g_busIdSet.gpuBusId[0][gpuKey]=innerBusId;
+    char* path = NULL;
+    getPciPath(innerBusId, &path);
+    int layerCount = 1;
+    if (path) {
+      int slashCount = 0;
+      int parentOffset;
+      for (parentOffset = strlen(path)-1; parentOffset > 0; parentOffset--) {
+        if (path[parentOffset] == '/') {
+          slashCount++;
+          path[parentOffset] = '\0';
+          int start = parentOffset - 1;
+          while (start > 0 && path[start] != '/') start--;
+          // Check whether the parent path looks like "BBBB:BB:DD.F" or not.
+          if (checkBDFFormat(path+start+1) == 0) {
+            // save last busid for pcieSwitch
+            g_busIdSet.pcieSwitchBusId.emplace_back(g_busIdSet.gpuBusId[layerCount-1][gpuKey]);
+            break;
+          } else {
+            if (slashCount % 2 == 0) {
+              while(g_busIdSet.gpuBusId.size() <= layerCount) {
+                g_busIdSet.gpuBusId.emplace_back();
+              }
+              char busId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE] = {};
+              strncpy(busId, path+start+1, sizeof(busId)-1);
+              g_busIdSet.gpuBusId[layerCount++][gpuKey]=busId;
+            }
+          }
+        }
+      }
+      free(path);
+    }
+
+    std::string busIdListStr;
+    for (int vecterIndex = 0; vecterIndex < layerCount; vecterIndex++) {
+      if(g_busIdSet.gpuBusId[vecterIndex].find(gpuKey) != g_busIdSet.gpuBusId[vecterIndex].end()) {
+        busIdListStr += " | " + g_busIdSet.gpuBusId[vecterIndex][gpuKey];
+      }
+    }
+    
+    INFO(NCCL_GRAPH, "gpu key:%s busIdList:%s \n",gpuKey.c_str(),busIdListStr.c_str());
+  }
+
+  std::string pcieSwitchListStr;
+  for(int i=0;i<g_busIdSet.pcieSwitchBusId.size();i++) {
+    pcieSwitchListStr += " | " + g_busIdSet.pcieSwitchBusId[i];
+  }
+  INFO(NCCL_GRAPH, "pcieSwitch busIdList :%s \n",pcieSwitchListStr.c_str());
+
+  //nic
+  int netDevCount;
+  // note: netDevCount only include valid network devices. If the status of the network device is "Down", it will not be counted.
+  NCCLCHECK(comm->ncclNet->devices(&netDevCount));
+  for (int i = 0; i < netDevCount; i++) { 
+    ncclNetProperties_t props;
+    NCCLCHECK(comm->ncclNet->getProperties(i, &props));
+    char* pciSysPath = props.pciPath;
+    int offset;
+    for (offset=strlen(pciSysPath)-1; pciSysPath[offset] != '/'; offset--);
+    char busId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE] = {};
+    if (checkBDFFormat(pciSysPath+offset+1) == 1) {
+      strncpy(busId, pciSysPath+offset+1, sizeof(busId)-1);
+    }
+    g_busIdSet.nicBusId[props.name]=busId;
+    INFO(NCCL_GRAPH, "nic name:%s busId:%s \n",props.name,busId);
+  }
+
+  return ncclSuccess;
+} 
+
+// Return Prefix string
+inline std::string envTypeInfo::getPrefixFromNicName(const std::string& nicName) {
+    // 1. First, locate the underline.
+    size_t pos = nicName.find('_');
+    if (pos == std::string::npos)
+        // 2. No underline. Find the first number.
+        pos = nicName.find_first_of("0123456789");
+
+    return pos == std::string::npos ? nicName   // Nothing at all. Back to the whole.
+                                    : nicName.substr(0, pos);
+}
+
+// Get NIC type and quantity
+int envTypeInfo::GetNicInfoFromSys(std::string& nicType) { 
+  const char* path = "/sys/class/infiniband";
+  DIR* dir = opendir(path);
+  if (!dir) {
+    return 0;
+  }
+
+  std::vector<std::string> devices;
+  dirent* entry;
+  while ((entry = readdir(dir))) {
+    if (entry->d_name[0] != '.')          // 跳过 "."  ".."
+      devices.emplace_back(entry->d_name);
+  }
+  closedir(dir);
+
+  if(!devices.empty()) {
+    nicType = getPrefixFromNicName(devices[0]);
+  }
+  return devices.size();
+}
+
+// Collect environmental information, including GPU architecture, GPU quantity, CPU architecture, NIC type and NIC quantity
+void envTypeInfo::_init(struct ncclComm* comm) {
+  if (comm == NULL) return;
+  // gpu gcn
+  char gcnArchNameSubstr[128]={};
+  GetGcnArchName(0,gcnArchNameSubstr);
+  gpuGcn = gcnArchNameSubstr;
+  // gpu count
+  NCCLCHECK(rocm_smi_getNumDevice(&gpuCount));
+
+  //cpu arch 
+  #if defined(__PPC__)
+    cpuArch = "ppc64";
+  #elif defined(__aarch64__)
+    cpuArch = "arm64";
+  #elif defined(__x86_64__)
+    cpuArch = "x86_64";
+  #endif
+
+  //cpu vendor
+  #if defined(__x86_64__)
+    union {
+      struct {
+        // CPUID 0 String register order
+        uint32_t ebx;
+        uint32_t edx;
+        uint32_t ecx;
+      };
+      char vendor[12];
+    } cpuid0;
+
+    unsigned unused;
+    __cpuid(0, unused, cpuid0.ebx, cpuid0.ecx, cpuid0.edx);
+    cpuVendor = std::string(cpuid0.vendor, 12); 
+  #endif
+
+  //nic type and Count
+  nicCount = GetNicInfoFromSys(nicType);
+
+  if (!cpuVendor.empty()) {
+    envTypeStr = gpuGcn + "_" + std::to_string(gpuCount) + "_" +
+                cpuArch + "_" + cpuVendor + "_" + 
+                nicType + "_" + std::to_string(nicCount);
+  } else {
+    envTypeStr = gpuGcn + "_" + std::to_string(gpuCount) + "_" +
+                cpuArch + "_" + nicType + "_" + std::to_string(nicCount);
+  }
+
+  return;
+}
+
