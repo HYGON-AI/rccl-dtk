@@ -487,8 +487,13 @@ ncclResult_t p2pRecvSetup(struct ncclComm* comm, struct ncclTopoGraph* graph, st
 
   int recvSize = sizeof(struct ncclRecvMem);
   // For P2P Read the SIMPLE buffer is tagged on the end of the ncclSendMem structure
-  for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) if (!(info->read && p == NCCL_PROTO_SIMPLE)) recvSize += comm->buffSizes[p];
-  ALIGN_SIZE(recvSize, CUDA_IPC_MIN);
+  for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
+    if(channelId < comm->CollSimpleChannels || connIndex != 0) {
+      if (!(info->read && p == NCCL_PROTO_SIMPLE)) recvSize += comm->buffSizes[p];
+    } else if(p != NCCL_PROTO_SIMPLE) {
+       recvSize += comm->buffSizes[p];
+    }
+  }
 
   if (intermediateRank == -1) {
     info->rank = myInfo->rank;
@@ -539,13 +544,18 @@ static ncclResult_t p2pSendConnect(struct ncclComm* comm, struct ncclConnect* co
 
   char* buff = (char*)(remDevMem+1);
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
-    if (info->read && p == NCCL_PROTO_SIMPLE) {
+    if(send->proxyConn.connection->channelId < comm->CollSimpleChannels || send->proxyConn.connection->connIndex != 0) {
+      if (info->read && p == NCCL_PROTO_SIMPLE) {
       /* For P2P Read the SIMPLE buffer is local (ncclSendMem) */
-      if (resources->sendDevMem == NULL) return ncclInternalError; // We should not use read + memcpy
-      send->conn.buffs[p] = (char*)(resources->sendDevMem+1);
-    } else {
-      send->conn.buffs[p] = buff;
-      buff += comm->buffSizes[p];
+        if (resources->sendDevMem == NULL) return ncclInternalError; // We should not use read + memcpy
+        send->conn.buffs[p] = (char*)(resources->sendDevMem+1);
+      } else {
+        send->conn.buffs[p] = buff;
+        buff += comm->buffSizes[p];
+      }
+    } else if (p != NCCL_PROTO_SIMPLE) {
+        send->conn.buffs[p] = buff;
+        buff += comm->buffSizes[p];
     }
   }
   send->conn.stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE]/NCCL_STEPS;
@@ -598,11 +608,16 @@ ncclResult_t p2pRecvConnect(struct ncclComm* comm, struct ncclConnect* connectIn
 
   char* buff = (char*)(resources->recvDevMem+1);
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
-    if (info->read && p == NCCL_PROTO_SIMPLE) {
+    if(recv->proxyConn.connection->channelId < comm->CollSimpleChannels || recv->proxyConn.connection->connIndex != 0){
+      if (info->read && p == NCCL_PROTO_SIMPLE) {
       if (remDevMem == NULL) return ncclInternalError; // We should not use read + memcpy
-      /* For P2P Read the SIMPLE buffer is remote (ncclSendMem) */
-      recv->conn.buffs[p] = (char*)(remDevMem+1);
-    } else {
+        /* For P2P Read the SIMPLE buffer is remote (ncclSendMem) */
+        recv->conn.buffs[p] = (char*)(remDevMem+1);
+      } else {
+        recv->conn.buffs[p] = buff;
+        buff += comm->buffSizes[p];
+      }
+    } else if (p != NCCL_PROTO_SIMPLE) {
       recv->conn.buffs[p] = buff;
       buff += comm->buffSizes[p];
     }

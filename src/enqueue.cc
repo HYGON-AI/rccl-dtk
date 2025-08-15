@@ -1756,6 +1756,7 @@ static ncclResult_t topoGetAlgoInfo(
   }
 
   int nc = comm->nChannels;
+  if (info->protocol == NCCL_PROTO_SIMPLE) nc = comm->CollSimpleChannels;
   int nt = comm->maxThreads[info->algorithm][info->protocol];
   int threadThreshold = comm->threadThresholds[info->algorithm][info->protocol];
   if (info->algorithm == NCCL_ALGO_COLLNET_DIRECT) {
