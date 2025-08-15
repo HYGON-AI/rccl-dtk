@@ -907,7 +907,7 @@ static ncclResult_t setupChannel(struct ncclComm* comm, int channelId, int rank,
 
 #define DEFAULT_LL_BUFFSIZE (NCCL_LL_LINES_PER_THREAD*NCCL_LL_MAX_NTHREADS*NCCL_STEPS*sizeof(union ncclLLFifoLine))
 #define DEFAULT_LL128_BUFFSIZE (NCCL_LL128_ELEMS_PER_THREAD*NCCL_LL128_MAX_NTHREADS*NCCL_STEPS*sizeof(uint64_t))
-#define DEFAULT_BUFFSIZE (1 << 22) /* 4MiB */
+#define DEFAULT_BUFFSIZE (1 << 21) /* 2MiB */
 NCCL_PARAM(BuffSize, "BUFFSIZE", -2);
 NCCL_PARAM(LlBuffSize, "LL_BUFFSIZE", -2);
 NCCL_PARAM(Ll128BuffSize, "LL128_BUFFSIZE", -2);
@@ -1048,7 +1048,8 @@ static int checkMNNVL(struct ncclComm* comm) {
 #define TIMER_INIT_GRAPHS 5
 #define TIMER_INIT_CONNECT 6
 #define TIMERS_INIT_COUNT 7
-
+NCCL_PARAM(SharedNetEnable, "SHARED_NET_ENABLE", 0);
+NCCL_PARAM(CollSimpleChannels, "SIMPLE_CHANNELS", -2);
 static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* parent, uint64_t timers[TIMERS_INIT_COUNT]) {
   // We use 2 AllGathers
   // 1. { peerInfo, comm, compCap}
@@ -1574,10 +1575,16 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   INFO(NCCL_INIT, "Trees%s comm %p nRanks %02d busId %lx", line, comm, comm->nRanks, comm->busId);
 
   NCCLCHECKGOTO(computeBuffSizes(comm), ret, fail);
-
+  
   // Compute nChannels per peer for p2p
   NCCLCHECKGOTO(ncclTopoComputeP2pChannels(comm), ret, fail);
-
+  comm->CollSimpleChannels = comm->nChannels;
+  // set Simple nChannels to ncclParamCollSimpleChannels() when gcn=gfx936
+  if(IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936")){
+    int CollSimpleChannels = 16;
+    if(ncclParamCollSimpleChannels() != -2) CollSimpleChannels = ncclParamCollSimpleChannels();
+    if(CollSimpleChannels <= comm->nChannels && CollSimpleChannels > 0) comm->CollSimpleChannels = CollSimpleChannels;
+  }
   /* until now, all info of comm should be known. We can initialize shared resources and
    * map localRanks to top parent local ranks. NOTE: this shareRes init must be put before
    * all proxy operations. */
@@ -1691,12 +1698,12 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
       NCCLCHECKGOTO(ncclCollNetChainBufferSetup(comm), ret, fail);
       NCCLCHECKGOTO(ncclCollNetDirectBufferSetup(comm), ret, fail);
     }
-
-    // Connect to local net proxy
-    tpProxyRank = comm->topParentRanks[comm->rank];
-    NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_NET, 1, tpProxyRank, &proxyConn), ret, fail);
-    NCCLCHECKGOTO(ncclProxyCallBlocking(comm, &proxyConn, ncclProxyMsgSharedInit, &comm->p2pnChannels, sizeof(int), NULL, 0), ret, fail);
-
+    if(ncclParamSharedNetEnable()) {
+      // Connect to local net proxy
+      tpProxyRank = comm->topParentRanks[comm->rank];
+      NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_NET, 1, tpProxyRank, &proxyConn), ret, fail);
+      NCCLCHECKGOTO(ncclProxyCallBlocking(comm, &proxyConn, ncclProxyMsgSharedInit, &comm->p2pnChannels, sizeof(int), NULL, 0), ret, fail);
+    }
     // Then to remote ones when using PXN
     if (ncclPxnDisable(comm) == 0) {
       int nranks;
@@ -1707,7 +1714,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
         NCCLCHECKGOTO(ncclProxyCallBlocking(comm, &proxyConn, ncclProxyMsgSharedInit, &comm->p2pnChannels, sizeof(int), NULL, 0), ret, fail);
       }
     }
-
+    
     if (ncclParamNvbPreconnect()) {
       // Connect p2p when using NVB path
       int nvbNpeers;
