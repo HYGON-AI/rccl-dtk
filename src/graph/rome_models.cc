@@ -2507,6 +2507,13 @@ static struct rcclRomeModel hygonBWSingleNodeModel = {
   .ringBase = "0 1 3 2 4 6 5 7"
 };
 
+static struct rcclRomeModel hygonBWMultiNodes4NicModel = {
+  .ringBase ="N0 0 7 5 6 4 3 1 2 N0|"
+             "N1 3 4 6 5 7 0 2 1 N1|"
+             "N2 4 3 1 2 0 7 5 6 N2|"
+             "N3 7 0 2 1 3 4 6 5 N3|"
+};
+
 static struct rcclRomeModel hygonBWMultiNodes8NicModel = {
   .ringBase ="N0 0 7 6 5 4 3 2 1 N0|"
              "N1 1 2 3 4 5 6 7 0 N1|"
@@ -2581,14 +2588,20 @@ ncclResult_t parseBW(struct ncclTopoSystem* system, struct ncclTopoGraph* graph)
   const int ncpus = system->nodes[CPU].count;
   const int nnets = system->nodes[NET].count;
 
-  if (!IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx936") || ngpus != NGPUS)
+  if (IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx936"))
+    system->tuning = 1;
+  else 
+    return ncclSuccess;
+  if (ngpus != NGPUS)
     return ncclSuccess;
 
   if (system->nHosts == 1){
     NCCLCHECK(parseGraph(hygonBWSingleNodeModel.ringBase, system, graph, NULL, NULL, false));
-  } else if (nnets == 8 && system->nHosts%2 == 0){
+  } else if (nnets == 4){
+     NCCLCHECK(parseGraph(hygonBWMultiNodes4NicModel.ringBase, system, graph, NULL, NULL, false));
+  } else if (nnets == 8){
     NCCLCHECK(parseGraph(hygonBWMultiNodes8NicModel.ringBase, system, graph, NULL, NULL, false));
-  } else if (nnets == 9 && system->nHosts%2 == 0){
+  } else if (nnets == 9){
     NCCLCHECK(parseGraph(hygonBWMultiNodes9NicModel.ringBase, system, graph, NULL, NULL, false));
   }
 
