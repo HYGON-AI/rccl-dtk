@@ -30,6 +30,7 @@
 #define NET_BW 12.0           // 100Gbit
 #define VEGA_XGMI_WIDTH 24.0
 #define MI200_XGMI_WIDTH 36.0
+#define GFX936_XGMI_WIDTH 24.0  // 基于24进行的适配，实际为32
 #define GFX94X_XGMI_WIDTH 48.0
 
 // Intel CPU convert GPU P2P traffic into 64B PCI TLPs, so GPU
@@ -262,6 +263,8 @@ static ncclResult_t ncclTopoIdToNetDev(struct ncclTopoSystem* system, int64_t id
 static float ncclTopoXGMISpeed(const char* gcn) {
   if (IsArchMatch(gcn, "gfx90a"))
     return MI200_XGMI_WIDTH;
+  else if (IsArchMatch(gcn, "gfx936"))
+    return GFX936_XGMI_WIDTH;
   else if (IsArchMatch(gcn, "gfx94"))
     return GFX94X_XGMI_WIDTH;
   else
