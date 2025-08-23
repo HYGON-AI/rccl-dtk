@@ -847,7 +847,7 @@ ncclResult_t ncclTopoGetXmlFromGpu(struct ncclXmlNode* pciNode, uint32_t rocmDev
         RSMI_IO_LINK_TYPE rsmi_type;
         int hops, count;
         if (rocm_smi_getLinkInfo(dev, i, &rsmi_type, &hops, &count) == ncclSuccess) {
-          if (rsmi_type == RSMI_IOLINK_TYPE_XGMI && hops == 1) {
+          if (rsmi_type >= RSMI_IOLINK_TYPE_XGMI && hops >= 1) {
             char busIdStr[] = "00000000:00:00.0";
             NCCLCHECK(rocm_smi_getDevicePciBusIdString(i, busIdStr, sizeof(busIdStr)));
             char lowerId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
