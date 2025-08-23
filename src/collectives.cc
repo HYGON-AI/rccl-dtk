@@ -10,6 +10,7 @@
 #include "graph/topo.h"
 #include "nccl.h"
 #include "api_trace.h"
+#include "hipprof/hip_prof_rccl_api.h"
 
 #include "msccl/msccl_lifecycle.h"
 
@@ -108,6 +109,7 @@ ncclResult_t ncclAllGather_impl(const void* sendbuff, void* recvbuff, size_t sen
   struct ncclInfo info = { ncclFuncAllGather, "AllGather",
     sendbuff, recvbuff, sendcount, datatype, ncclSum, 0, comm, stream, /* Args */
     ALLGATHER_CHUNKSTEPS, ALLGATHER_SLICESTEPS };
+  RCCL_CB_SPAWNER_OBJECT(ncclAllGather, &info);
   NCCLCHECK(ncclEnqueueCheck(&info));
   return ncclSuccess;
 }
@@ -142,6 +144,7 @@ ncclResult_t ncclAllReduce_impl(const void* sendbuff, void* recvbuff, size_t cou
   struct ncclInfo info = { ncclFuncAllReduce, "AllReduce",
     sendbuff, recvbuff, count, datatype, op, 0, comm, stream, /* Args */
     ALLREDUCE_CHUNKSTEPS, ALLREDUCE_SLICESTEPS };
+  RCCL_CB_SPAWNER_OBJECT(ncclAllReduce, &info);
   NCCLCHECK(ncclEnqueueCheck(&info));
   return ncclSuccess;
 }
@@ -279,6 +282,7 @@ ncclResult_t ncclBroadcast_impl(const void* sendbuff, void* recvbuff, size_t cou
   struct ncclInfo info = { ncclFuncBroadcast, "Broadcast",
     sendbuff, recvbuff, count, datatype, ncclSum, root, comm, stream, /* Args */
     BROADCAST_CHUNKSTEPS, BROADCAST_SLICESTEPS };
+  RCCL_CB_SPAWNER_OBJECT(ncclBroadcast, &info);
   NCCLCHECK(ncclEnqueueCheck(&info));
   return ncclSuccess;
 }
@@ -365,6 +369,7 @@ ncclResult_t ncclReduce_impl(const void* sendbuff, void* recvbuff, size_t count,
   struct ncclInfo info = { ncclFuncReduce, "Reduce",
     sendbuff, recvbuff, count, datatype, op, root, comm, stream, /* Args */
     REDUCE_CHUNKSTEPS, REDUCE_SLICESTEPS };
+  RCCL_CB_SPAWNER_OBJECT(ncclReduce, &info);
   NCCLCHECK(ncclEnqueueCheck(&info));
   return ncclSuccess;
 }
@@ -399,6 +404,7 @@ ncclResult_t ncclReduceScatter_impl(const void* sendbuff, void* recvbuff, size_t
   struct ncclInfo info = { ncclFuncReduceScatter, "ReduceScatter",
     sendbuff, recvbuff, recvcount, datatype, op, 0, comm, stream, /* Args */
     REDUCESCATTER_CHUNKSTEPS, REDUCESCATTER_SLICESTEPS };
+  RCCL_CB_SPAWNER_OBJECT(ncclReduceScatter, &info);
   NCCLCHECK(ncclEnqueueCheck(&info));
   return ncclSuccess;
 }
@@ -477,6 +483,7 @@ ncclResult_t ncclSend_impl(const void* sendbuff, size_t count, ncclDataType_t da
   struct ncclInfo info = { ncclFuncSend, "Send",
     NULL, (void*)sendbuff, count, datatype, ncclSum, peer, comm, stream, /* Args */
     1, 1 };
+  RCCL_CB_SPAWNER_OBJECT(ncclSend, &info);
   ncclResult_t ret;
   NCCLCHECK(ncclGroupStart());
   NCCLCHECKGOTO(ncclEnqueueCheck(&info), ret, exit);
@@ -502,6 +509,7 @@ ncclResult_t ncclRecv_impl(void* recvbuff, size_t count, ncclDataType_t datatype
   struct ncclInfo info = { ncclFuncRecv, "Recv",
     NULL, recvbuff, count, datatype, ncclSum, peer, comm, stream, /* Args */
     1, 1 };
+    RCCL_CB_SPAWNER_OBJECT(ncclRecv, &info);
   ncclResult_t ret;
   NCCLCHECK(ncclGroupStart());
   NCCLCHECKGOTO(ncclEnqueueCheck(&info), ret, exit);

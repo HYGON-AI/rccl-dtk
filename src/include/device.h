@@ -497,6 +497,8 @@ struct ncclDevComm {
 
   // Channels, device side
   struct ncclDevChannel* channels/*[MAXCHANNELS]*/;
+  int funcindex;
+  uint64_t nBytes;
 
 #if defined(ENABLE_NPKIT)
   NpKitEventCollectContext* npKitEventCollectContexts;
