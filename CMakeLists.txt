@@ -471,6 +471,11 @@ set(SRC_FILES
   src/include/git_version.h
   src/include/graph.h
   src/include/group.h
+  src/include/hipprof/hip_profile_common.h
+  src/include/hipprof/hip_prof_rccl.h
+  src/include/hipprof/hip_prof_rccl_api.h
+  src/include/hipprof/hip_prof_rccl_param.h
+  src/include/hipprof/hip_prof_rccl_str.h
   src/include/hip_rocm_version_info.h
   src/include/ibvcore.h
   src/include/ibvsymbols.h
@@ -554,6 +559,8 @@ set(SRC_FILES
   src/misc/api_trace.cc
 # src/misc/cudawrap.cc
 # src/misc/gdrwrap.cc
+  src/misc/hip_prof_rccl.cc
+  src/misc/hip_prof_rccl_param.cc
   src/misc/ibvsymbols.cc
   src/misc/ibvwrap.cc
   src/misc/ipcsocket.cc
