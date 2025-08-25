@@ -178,7 +178,12 @@ namespace RcclUnitTesting
     std::vector<hipStream_t> stream(numRanks);
 
     char *proto = std::getenv("NCCL_PROTO");
-    const char* protocolList[3] = {"LL", "LL128", "Simple"};
+    std::vector<std::string> protocolList;
+    if(strncmp("gfx906",devProp.gcnArchName,6) == 0 || strncmp("gfx926",devProp.gcnArchName,6) == 0 || strncmp("gfx928",devProp.gcnArchName,6) == 0) {
+      protocolList = {"LL","Simple"};
+    } else {
+      protocolList = {"LL","LL128","Simple"};
+    }
 
     for (auto p : protocolList)
     {
@@ -186,7 +191,7 @@ namespace RcclUnitTesting
       if(strncmp("gfx12",devProp.gcnArchName,5) == 0) {
         setenv("NCCL_PROTO", "Simple", 1);
       } else {
-        setenv("NCCL_PROTO", p, 1);
+        setenv("NCCL_PROTO", p.c_str(), 1);
       }
 
       NCCLCHECK(ncclCommInitAll(comms.data(), numRanks, nullptr));
@@ -246,7 +251,7 @@ namespace RcclUnitTesting
       }
 
       EXPECT_LT(usElapsed/(double)numIterations, 5000);
-      printf("[ INFO     ] protocol: %s, average runtime: %f microseconds\n", p, usElapsed/(double)numIterations);
+      printf("[ INFO     ] protocol: %s, average runtime: %f microseconds\n", p.c_str(), usElapsed/(double)numIterations);
       // Release resources
       for (int rank = 0; rank < numRanks; rank++){
         HIPCALL(hipFree(gpuInput[rank]));

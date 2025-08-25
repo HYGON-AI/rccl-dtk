@@ -634,10 +634,12 @@ static ncclResult_t scheduleCollTasksToPlan(
   struct ncclKernelPlanner* planner = &comm->planner;
   // Estimate number of tasks that will fit in this plan.
   int nPlanColls = 0;
-  size_t trafficBytes[2*2] = {0, 0, 0, 0}; // [collnet][nvls]
-  int nChannels[2*2] = {0, 0, 0, 0}; // [collnet][nvls]
-  int const nMaxChannels[2*2] = {comm->nChannels, comm->nvlsChannels, // [collnet][nvls]
-                                 comm->nChannels, comm->nvlsChannels};
+  size_t trafficBytes[2*2*2] = {0, 0, 0, 0, 0, 0, 0, 0}; // [collnet][nvls][protocol] 0~3:非SIMPLE（LL或LL128等 4~7:SIMPLE
+  int nChannels[2*2*2] = {0, 0, 0, 0, 0, 0, 0, 0}; // [collnet][nvls][protocol]
+  int  nMaxChannels[2*2*2] = {comm->nChannels, comm->nvlsChannels, // [collnet][nvls][protocol]
+                                 comm->nChannels, comm->nvlsChannels,
+                                 comm->CollSimpleChannels, std::min(comm->nvlsChannels,comm->CollSimpleChannels),
+                                 comm->CollSimpleChannels, std::min(comm->nvlsChannels,comm->CollSimpleChannels)};
   do {
     size_t workBytes = 0;
     struct ncclTaskColl* task = ncclIntruQueueHead(&planner->collTaskQueue);
@@ -648,7 +650,7 @@ static ncclResult_t scheduleCollTasksToPlan(
 
       nPlanColls += 1;
       workBytes += workNode->size;
-      int kind = 2*task->isCollnet + task->isNvls;
+      int kind = 2*task->isCollnet + task->isNvls + 4*(task->protocol == NCCL_PROTO_SIMPLE ? 1 : 0);
       trafficBytes[kind] += task->trafficBytes;
       nChannels[kind] += task->nMaxChannels;
       nChannels[kind] = std::min(nChannels[kind], nMaxChannels[kind]);
@@ -669,7 +671,7 @@ static ncclResult_t scheduleCollTasksToPlan(
     struct ncclDevWorkColl* devWork = (struct ncclDevWorkColl*)(workNode+1);
     size_t elementSize = ncclTypeSize(task->datatype);
 
-    int kind = 2*task->isCollnet + task->isNvls;
+    int kind = 2*task->isCollnet + task->isNvls + 4*(task->protocol == NCCL_PROTO_SIMPLE ? 1 : 0);
     if (kind != kindPrev) {
       trafficPerChannel = std::max<size_t>(MinTrafficPerChannel, trafficBytes[kind]/nChannels[kind]);
       kindPrev = kind;
