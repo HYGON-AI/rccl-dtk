@@ -111,16 +111,14 @@ ncclResult_t collectNodesBusIds(struct ncclComm* comm);
 /* Collect environmental information and assemble it into an environmental information string */
 class envTypeInfo {
 public:
-    static envTypeInfo* instance(struct ncclComm* comm){
-        std::call_once(init_flag,[&comm](){
+    static std::string getEnvTypeInfoStr() { 
+      std::call_once(init_flag,[](){
             _inst = new(std::nothrow) envTypeInfo();
             if (!_inst) return;
-            _inst->_init(comm);
+            _inst->_init();
         });
-        return _inst;
+      return _inst->envTypeStr; 
     }
-
-    std::string getEnvTypeInfoStr() const { return envTypeStr; }
 
     envTypeInfo(const envTypeInfo&) = delete;
     envTypeInfo& operator=(const envTypeInfo&) = delete;
@@ -130,7 +128,7 @@ private:
     ~envTypeInfo() = default;
     inline std::string getPrefixFromNicName(const std::string& nicName);
     int GetNicInfoFromSys(std::string& nicType);
-    void _init(struct ncclComm* comm);
+    void _init();
 
     std::string  gpuGcn;
     std::string  cpuArch;

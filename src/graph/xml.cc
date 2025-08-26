@@ -26,7 +26,6 @@
 
 static bool isTopoMappingDefaultFile = true;
 static struct ncclBusIds  g_busIdSet;
-static struct envTypeInfo* g_envTypeInfo = NULL;
 std::once_flag envTypeInfo::init_flag;
 envTypeInfo*   envTypeInfo::_inst = NULL;
 /*******************/
@@ -581,7 +580,9 @@ ncclResult_t ncclTopoGetXmlFromSys(struct ncclXmlNode* pciNode, struct ncclXml* 
   NCCLCHECK(xmlGetAttr(pciNode, "busid", &busId));
   char* path = NULL;
   ncclDebugNoWarn = NCCL_GRAPH;
-  getPciPath(busId, &path);
+  if (busId) {
+    getPciPath(busId, &path);
+  }
   ncclDebugNoWarn = 0;
 
   if (path) {
@@ -1194,12 +1195,12 @@ ncclResult_t ncclTopoGetXmlFromMappingFile(struct ncclComm* comm, struct ncclXml
   std::call_once(init_flag,[&comm](){ NCCLCHECK(collectNodesBusIds(comm)); });
 
   //Collect environmental information
-  g_envTypeInfo = envTypeInfo::instance(comm);
-  if (!g_envTypeInfo) {
+  std::string envTypeInfoStr = envTypeInfo::getEnvTypeInfoStr();
+  if (envTypeInfoStr.empty()) {
     WARN("Unable to complete the environmental inspection, the generation of the basic topology has been terminated.");
     return ncclSuccess;
   }
-  INFO(NCCL_GRAPH, "After environmental exploration, the environmental key word is %s", g_envTypeInfo->getEnvTypeInfoStr().c_str());
+  INFO(NCCL_GRAPH, "After environmental exploration, the environmental key word is %s", envTypeInfoStr.c_str());
   
   //Parse the XML file and fill in the "busid" attribute
   FILE* file = fopen(filePath, "r");
@@ -1293,7 +1294,7 @@ bool containsKeyWord(const std::string& groupName, const std::string& keyWord) {
 }
 /*
  * 函数功能：解析group层，使用ncclTopoXmlGraphLoadMappingCpu处理cpu标签，额外的逻辑如下：
-            1.当使用默认映射配置文件时，尝试从g_envTypeInfo中获取当前环境标签，若能获取则以环境标签为group name；
+            1.当使用默认映射配置文件时，尝试从envTypeInfo中获取当前环境标签，若能获取则以环境标签为group name；
             2.当使用自定义映射配置文件时，解析第一个合格的group；
             注：group标签要求必须有name属性
  * 参数说明：
@@ -1316,7 +1317,7 @@ ncclResult_t ncclTopoXmlGraphLoadMappingGroup(FILE* file, struct ncclXml* xml, s
   NCCLCHECK(xmlGetAttr(head, "name", &name));
   if (name != NULL) {
     if (isTopoMappingDefaultFile) {
-      xmlMappingGroupName = g_envTypeInfo != NULL ? g_envTypeInfo->getEnvTypeInfoStr() : "";
+      xmlMappingGroupName = envTypeInfo::getEnvTypeInfoStr();
     }
 
     if(!isTopoMappingDefaultFile || containsKeyWord(name, xmlMappingGroupName)) {
@@ -1363,7 +1364,15 @@ ncclResult_t ncclTopoXmlGraphLoadMappingCpu(FILE* file, struct ncclXml* xml, str
 ncclResult_t ncclTopoXmlGraphLoadMappingPci(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head) {
   thread_local int pcieSwitchCount = 0;
   //set busid for pcieSwtich
-  if(head->parent && strcmp(head->parent->name,"cpu") == 0  && pcieSwitchCount < g_busIdSet.pcieSwitchBusId.size()) {
+  if(head->parent && strcmp(head->parent->name,"cpu") == 0) {
+    if(pcieSwitchCount >= g_busIdSet.pcieSwitchBusId.size()) {
+      WARN("Error : The number of PCIe Switch labels [%d] exceeds the number of collected PCIe Switch busids [%lu], ignore the excess PCIe Switch labels."
+        ,pcieSwitchCount+1,g_busIdSet.pcieSwitchBusId.size());
+      NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
+      NCCLCHECK(xmlRemoveNode(head));
+      memset(head, 0, sizeof(struct ncclXmlNode));
+      return ncclSuccess;
+    }
     NCCLCHECK(xmlSetAttr(head, "busid",g_busIdSet.pcieSwitchBusId[pcieSwitchCount++].c_str()));
   }
 
@@ -1465,6 +1474,8 @@ ncclResult_t ncclTopoXmlGraphLoadMappingNic(FILE* file, struct ncclXml* xml, str
   } else {
     WARN("Nic dev attr no exit or the current NIC[%s] cannot be found.",nicName!=NULL?nicName:"NULL");
     NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
+    NCCLCHECK(xmlRemoveNode(head));
+    memset(head, 0, sizeof(struct ncclXmlNode));
     return ncclSuccess;
   }
 
@@ -1510,6 +1521,8 @@ ncclResult_t ncclTopoXmlGraphLoadMappingNic(FILE* file, struct ncclXml* xml, str
     if(nicNode == NULL){
       WARN("The PCI node with busid %s was found, but no NIC sub-node was found.",busId.c_str());
       NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
+      NCCLCHECK(xmlRemoveNode(head));
+      memset(head, 0, sizeof(struct ncclXmlNode));
       return ncclSuccess;
     }
 
@@ -1724,6 +1737,7 @@ ncclResult_t ncclTopoXmlGraphLoadMappingSlot(FILE* file, struct ncclXml* xml, st
     // none type
     WARN("Cannot turn the slot number[%d] into a GPU or NIC dev.",slotId);
     NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
+    // The incorrect "slot" tags will be uniformly deleted later.
   }
 
   return ncclSuccess;
@@ -1741,8 +1755,7 @@ ncclResult_t collectNodesBusIds(struct ncclComm* comm) {
   g_busIdSet.gpuBusId.emplace_back();
   uint32_t deviceCnt = 0;
   NCCLCHECK(rocm_smi_getNumDevice(&deviceCnt));
-  for (uint32_t i = 0; i < deviceCnt; i++)
-  {
+  for (uint32_t i = 0; i < deviceCnt; i++) {
     char innerBusId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE] = {};
     NCCLCHECK(rocm_smi_getDevicePciBusIdString(i, innerBusId, sizeof(innerBusId)));
     std::string gpuKey = MAPPING_GPU_KEY_PREFIX+std::to_string(i);
@@ -1802,15 +1815,21 @@ ncclResult_t collectNodesBusIds(struct ncclComm* comm) {
   for (int i = 0; i < netDevCount; i++) { 
     ncclNetProperties_t props;
     NCCLCHECK(comm->ncclNet->getProperties(i, &props));
+    if (props.pciPath == NULL || props.name == NULL) {
+      WARN("Unable to obtain the pciPath[%s] or name[%s] attributes from NetProperties.",props.pciPath?props.pciPath : "NULL", props.name?props.name : "NULL");
+      continue;
+    }
     char* pciSysPath = props.pciPath;
     int offset;
     for (offset=strlen(pciSysPath)-1; pciSysPath[offset] != '/'; offset--);
     char busId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE] = {};
     if (checkBDFFormat(pciSysPath+offset+1) == 1) {
       strncpy(busId, pciSysPath+offset+1, sizeof(busId)-1);
+      g_busIdSet.nicBusId[props.name]=busId;
+      INFO(NCCL_GRAPH, "nic name:%s busId:%s \n",props.name,busId);
+    } else {
+      WARN("The pciPath[%s] attribute of the network device[%s] is not in the correct format.", props.pciPath, props.name);
     }
-    g_busIdSet.nicBusId[props.name]=busId;
-    INFO(NCCL_GRAPH, "nic name:%s busId:%s \n",props.name,busId);
   }
 
   return ncclSuccess;
@@ -1851,8 +1870,7 @@ int envTypeInfo::GetNicInfoFromSys(std::string& nicType) {
 }
 
 // Collect environmental information, including GPU architecture, GPU quantity, CPU architecture, NIC type and NIC quantity
-void envTypeInfo::_init(struct ncclComm* comm) {
-  if (comm == NULL) return;
+void envTypeInfo::_init() {
   // gpu gcn
   char gcnArchNameSubstr[128]={};
   GetGcnArchName(0,gcnArchNameSubstr);
