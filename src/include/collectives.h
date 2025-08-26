@@ -76,14 +76,15 @@ struct ncclConnFifo {
 };
 
 typedef enum ncclP2pInfo {
-  P2pGather,           // Gather
-  P2pScatter,          // Scatter
-  P2pAllToAll,         // AllToAll
+  P2pGather,
+  P2pScatter,         
+  P2pAllToAll,         
+  P2pAllToAllv,        
   P2pInvalid
 } ncclP2pInfo_t;
 
-extern thread_local std::stack<ncclP2pInfo_t> g_ncclParentP2pStack;
-inline void pushParentP2p(ncclP2pInfo_t func) { g_ncclParentP2pStack.push(func); }
-inline void popParentP2p() { if (!g_ncclParentP2pStack.empty()) g_ncclParentP2pStack.pop(); }
-inline ncclP2pInfo_t currentParentP2p() { return g_ncclParentP2pStack.empty() ? P2pInvalid : g_ncclParentP2pStack.top(); }
+extern thread_local ncclP2pInfo_t g_ncclParentP2p;
+inline void pushParentP2p(ncclP2pInfo_t func) { g_ncclParentP2p = func; }
+inline void popParentP2p() { g_ncclParentP2p = P2pInvalid; }
+inline ncclP2pInfo_t currentParentP2p() { return g_ncclParentP2p; }
 #endif
