@@ -80,7 +80,7 @@ struct ncclIbDev ncclIbDevs[MAX_IB_DEVS];
 pthread_mutex_t ncclIbLock = PTHREAD_MUTEX_INITIALIZER;
 static int ncclIbRelaxedOrderingEnabled = 0;
 
-NCCL_PARAM(IbGidIndex, "IB_GID_INDEX", -1);
+NCCL_PARAM(IbGidIndex, "IB_GID_INDEX", 0);
 NCCL_PARAM(IbRoutableFlidIbGidIndex, "IB_ROUTABLE_FLID_GID_INDEX", 1);
 NCCL_PARAM(IbRoceVersionNum, "IB_ROCE_VERSION_NUM", 2);
 NCCL_PARAM(IbTimeout, "IB_TIMEOUT", 18);
