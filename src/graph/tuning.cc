@@ -121,7 +121,7 @@ static struct tuningModel tuning_model_1 {
   .treeCorrectionFactor = {
     { 1.0, 1.0, 1.0, 1.0,  .9,  .9,  .9,  .9,  .9,  .9,  .6,  .5,  .4,  .5,  .5,  .6,  .7,  .8,  .9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 },
     { 1.0, 1.0, 1.0, 1.0, 1.0,  .9,  .8,  .8,  .8,  .7,  .6,  .6,  .6,  .6,  .6,  .6,  .8,  .9,  .9,  .9,  .9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 },
-    {  .9,  .9,  .9,  .9,  .9,  .9,  .9,  .8,  .7,  .6,  .6,  .5,  .4,  .5,  .5,  .6,  .7,  .9, .95,  .9,  .7,  .7,  .7, 1.0, 1.0, 1.0, 1.0 }
+    {  .9,  .9,  .9,  .9,  .9,  .9,  .9,  .8,  .7,  .6,  .6,  .5,  .4,  .5,  .5,  .6,  .7,  .9, .95,  .9,  .7,  .7,  .7,  .7,  .7,  .7,  .7 }
   //{   0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  13,  14,  15,  16,  16,  18,  19,  20,  21,  22,  23,  24,  25, 26 }
   },
 
@@ -440,8 +440,11 @@ ncclResult_t ncclTopoTuneModel(struct ncclComm* comm, int minCompCap, int maxCom
               if (p == NCCL_PROTO_SIMPLE) lat = rcclTuningModel[comm->topo->tuning].hwLat[hw[a]][NCCL_ALGO_TREE][p]; // Add some chunk latency, waiting for proper chunk modeling
               comm->latencies[coll][a][p] += nsteps*lat;
             }
-            if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") && nNodes == 1) {
-              if (p == NCCL_PROTO_SIMPLE) comm->latencies[coll][a][p] *= 0.62;
+            if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936")) {
+              if (p == NCCL_PROTO_SIMPLE){
+                if (nNodes == 1) comm->latencies[coll][a][p] *= 0.62;
+                else comm->latencies[coll][a][p] *= 0.74;
+              }
             }
           } else {
             // Inter-node rings still have to launch nsteps * net overhead.
