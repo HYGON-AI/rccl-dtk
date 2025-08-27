@@ -81,7 +81,7 @@ const char* ncclProtoToString(int proto) {
   }
 }
 
-thread_local std::stack<ncclP2pInfo_t> g_ncclParentP2pStack;
+thread_local ncclP2pInfo_t g_ncclParentP2p = P2pInvalid;
 NCCL_API(ncclResult_t, ncclAllGather, const void* sendbuff, void* recvbuff, size_t sendcount,
     ncclDataType_t datatype, ncclComm_t comm, cudaStream_t stream);
 
@@ -234,6 +234,7 @@ ncclResult_t ncclAllToAllv_impl(const void *sendbuff, const size_t sendcounts[],
   int nRanks;
   NCCLCHECK(ncclCommCount(comm, &nRanks));
   NCCLCHECK(ncclGroupStart());
+  pushParentP2p(P2pAllToAllv);
   for (int r=0; r<nRanks; r++) {
     NCCLCHECK(ncclSend(
         ((char*)sendbuff) + sdispls[r]*ncclTypeSize(datatype),
@@ -250,6 +251,7 @@ ncclResult_t ncclAllToAllv_impl(const void *sendbuff, const size_t sendcounts[],
         comm,
         stream));
   }
+  popParentP2p();
   NCCLCHECK(ncclGroupEnd());
   return ncclSuccess;
 }
