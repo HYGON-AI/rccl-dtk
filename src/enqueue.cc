@@ -1762,7 +1762,13 @@ static ncclResult_t topoGetAlgoInfo(
   }
 
   int nc = comm->nChannels;
-  if (info->protocol == NCCL_PROTO_SIMPLE) nc = comm->CollSimpleChannels;
+  if (info->protocol == NCCL_PROTO_SIMPLE) {
+    nc = comm->CollSimpleChannels;
+    // 针对reduce和broadcast特性定制tuning
+    if (comm->nNodes > 1 && info->func <= ncclFuncReduce && info->count*ncclTypeSize(info->datatype) < 1*1024*1024){
+      nc = 1;
+    }
+  }
   int nt = comm->maxThreads[info->algorithm][info->protocol];
   int threadThreshold = comm->threadThresholds[info->algorithm][info->protocol];
   if (info->algorithm == NCCL_ALGO_COLLNET_DIRECT) {

@@ -321,7 +321,6 @@ static ncclResult_t sendConnect(struct ncclComm* comm, struct ncclConnect* conne
   struct connectMap* map = (connectMap*) send->transportResources;
 
   void* opId;
-  send->proxyConn.connection->comm = comm;
   // map isn't allocated thus this op hasn't been submitted yet
   if (!map) {
     // Setup device pointers
@@ -427,7 +426,6 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
 static ncclResult_t recvConnect(struct ncclComm* comm, struct ncclConnect* connectInfo, int nranks, int rank, struct ncclConnector* recv) {
   struct connectMap* map = (connectMap*) recv->transportResources;
   void* opId;
-  recv->proxyConn.connection->comm = comm;
   if (!map) {
     NCCLCHECK(ncclCalloc(&map, 1));
     recv->transportResources = map;
@@ -768,11 +766,7 @@ static ncclResult_t sendProxyConnect(struct ncclProxyConnection* connection, str
 
   if (resources->shared == 0) { // Only allocate dedicated buffers for ring/tree, not for p2p
     for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
-      if(resources->channelId < connection->comm->CollSimpleChannels  || resources->connIndex != 0) {
-        NCCL_NET_MAP_ADD_POINTER(map, 0, p!= NCCL_PROTO_LL && resources->useGdr, proxyState->buffSizes[p], buffs[p]);
-      } else {
-        NCCL_NET_MAP_ADD_POINTER(map, 0, p!= NCCL_PROTO_SIMPLE && p != NCCL_PROTO_LL && resources->useGdr, proxyState->buffSizes[p], buffs[p]);
-      }
+      NCCL_NET_MAP_ADD_POINTER(map, 0, p!= NCCL_PROTO_LL && resources->useGdr, proxyState->buffSizes[p], buffs[p]);
       resources->buffSizes[p] = proxyState->buffSizes[p];
     }
   } else {
@@ -950,11 +944,7 @@ static ncclResult_t recvProxyConnect(struct ncclProxyConnection* connection, str
 
   if (resources->shared == 0) { // Only allocate dedicated buffers for ring/tree, not for p2p
     for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
-      if(resources->channelId < connection->comm->CollSimpleChannels || resources->connIndex != 0) {
-        NCCL_NET_MAP_ADD_POINTER(map, 0, resources->useGdr, proxyState->buffSizes[p], buffs[p]);
-      } else {
-        NCCL_NET_MAP_ADD_POINTER(map, 0, p!= NCCL_PROTO_SIMPLE && resources->useGdr, proxyState->buffSizes[p], buffs[p]);
-      }
+      NCCL_NET_MAP_ADD_POINTER(map, 0, resources->useGdr, proxyState->buffSizes[p], buffs[p]);
       resources->buffSizes[p] = proxyState->buffSizes[p];
     }
   } else {
