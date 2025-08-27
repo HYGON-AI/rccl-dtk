@@ -12,6 +12,7 @@
 #include "topo.h"
 #include "transport.h"
 #include "xml.h"
+#include "channel.h"
 #include <math.h>
 #include <sys/time.h>
 #include "rome_models.h"
@@ -1271,7 +1272,7 @@ fail:
 // 0: don't use PXN for P2P, 1: use PXN if needed, 2: use PXN as much as possible to maximize aggregation
 NCCL_PARAM(P2pPxnLevel, "P2P_PXN_LEVEL", 2);
 
-ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank) {
+ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank, int** gpus, int* gpuCount) {
   int64_t netId = -1;
   int netDev = -1;
   if (graph) {
@@ -1326,7 +1327,56 @@ ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoG
         int n, g1, g2;
         NCCLCHECK(ncclTopoIdToIndex(comm->topo, NET, netId, &n));
         NCCLCHECK(ncclTopoRankToIndex(comm->topo, rank, &g1));
-        NCCLCHECK(ncclTopoGetLocalGpu(comm->topo, netId, &g2));
+
+        const char *loadbalancingType = ncclGetEnv("RCCL_PXN_GPU_BALANCE");
+        if (loadbalancingType != NULL) {
+          INFO(NCCL_ENV, "RCCL_PXN_GPU_BALANCE set by environment to %s.", loadbalancingType);
+          if (strcmp(loadbalancingType, "1") == 0) {   // new GPU Balancing
+            int localChannelId = 0;
+            int round = 0;
+            while (peerRank != (1 ? comm->p2pSchedule[round].sendRank
+                                          : comm->p2pSchedule[round].recvRank)) {
+              round += 1;
+            }
+            uint8_t base = ncclP2pChannelBaseForRound(comm, round);
+            for (int c=0; c < comm->p2pnChannelsPerPeer; c++) {
+              int channel = ncclP2pChannelForPart(comm->p2pnChannels, base, c, comm->p2pnChannelsPerPeer, comm->nNodes);
+              if (channel == channelId) {
+                localChannelId = c;
+              }
+            }
+            INFO(NCCL_INIT|NCCL_NET, "localChannelId=%d, channelId=%d", localChannelId, channelId);
+
+            if(gpus) {     // new GPU Balancing + ncclTopoGetPxnRanks()
+              int* localGpus = NULL;
+              NCCLCHECK(ncclCalloc(&localGpus, comm->topo->nodes[GPU].count));
+              int localGpuCount;
+              NCCLCHECK(ncclTopoGetLocalGpu(comm->topo, netId, &g2, localChannelId, &localGpus, &localGpuCount));
+              for (int lg=0; lg<localGpuCount; lg++) {
+                struct ncclTopoNode* peerGpu = comm->topo->nodes[GPU].nodes+localGpus[lg];
+                if (peerGpu->paths[GPU][g1].type <= PATH_NVL && peerGpu->paths[NET][n].type <= PATH_PXB) {
+                  (*gpus)[(*gpuCount)++] = peerGpu->gpu.rank;
+                }
+              }
+              if(localGpus) {
+                free(localGpus);
+                localGpus = NULL;
+              } 
+            } else {    // new GPU Balancing + netTransport->send/recvSetup() 
+              INFO(NCCL_INIT|NCCL_NET, "p2p : curRank:%d [send to/receive from] peerRank:%d - Channel selection is limited by p2pnChannelsPerPeer %d.", rank, peerRank, comm->p2pnChannelsPerPeer);
+              if (comm->p2pnChannelsPerPeer > 1){  
+                NCCLCHECK(ncclTopoGetLocalGpu(comm->topo, netId, &g2, localChannelId));
+              } else {   // comm->p2pnChannelsPerPeer = 1 
+                NCCLCHECK(ncclTopoGetLocalGpuForPerpeer1(comm->topo, rank, localRank, channelId, &g2));
+              }
+            }
+          } else {   // default
+            goto default_loadbalancing;
+          }
+        } else {  // default
+default_loadbalancing: 
+          NCCLCHECK(ncclTopoGetLocalGpu(comm->topo, netId, &g2));
+        }
         if (g2 != -1) {
           struct ncclTopoNode* peerGpu = comm->topo->nodes[GPU].nodes+g2;
           if (peerGpu->paths[GPU][g1].type <= PATH_NVL && peerGpu->paths[NET][n].type <= PATH_PXB) {
@@ -1338,6 +1388,267 @@ ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoG
         }
       }
     }
+  }
+  return ncclSuccess;
+}
+
+#define MAX_PLANES 8
+#define MAX_ELEMENTS_PER_PLANE 8
+#define MAX_ELEMENT_LENGTH 64
+
+typedef struct {
+    char elements[MAX_ELEMENTS_PER_PLANE][MAX_ELEMENT_LENGTH];
+    uint8_t count;
+} Plane;
+
+typedef struct {
+    Plane planes[MAX_PLANES];
+    uint8_t count;
+} PlaneList;
+
+typedef struct
+{
+  int planeDev[MAX_PLANES][MAX_ELEMENTS_PER_PLANE];
+  uint8_t planeNum;
+} DevPlane;
+
+static void parse_planes(const char *input, PlaneList *result) {
+    result->count = 0;
+    int current_plane = 0;
+    int current_element = 0;
+    int pos_in_element = 0;
+    int i = 0;
+    int len = strlen(input);
+
+    // Initialize the first plane
+    if (result->count < MAX_PLANES) {
+        result->planes[current_plane].count = 0;
+    }
+
+    while (i < len) {
+        char c = input[i];
+        if (isspace(c)) {
+            i++;
+            continue;
+        }
+
+        if (c == '|' || c == ',') {
+            // Finish current element if any
+            if (pos_in_element > 0) {
+                if (current_element < MAX_ELEMENTS_PER_PLANE) {
+                    result->planes[current_plane].elements[current_element][pos_in_element] = '\0';
+                    result->planes[current_plane].count++;
+                    current_element++;
+                    pos_in_element = 0;
+                }
+            }
+
+            if (c == '|') {
+                // Move to next plane
+                if (result->count < MAX_PLANES - 1) {
+                    current_plane++;
+                    result->count++;
+                    result->planes[current_plane].count = 0;
+                    current_element = 0;
+                }
+            }
+            i++;
+        } else {
+            // Add character to current element
+            if (pos_in_element < MAX_ELEMENT_LENGTH - 1) {
+                result->planes[current_plane].elements[current_element][pos_in_element] = c;
+                pos_in_element++;
+            }
+            i++;
+        }
+    }
+
+    // Handle any remaining element after loop ends
+    if (pos_in_element > 0) {
+        if (current_element < MAX_ELEMENTS_PER_PLANE) {
+            result->planes[current_plane].elements[current_element][pos_in_element] = '\0';
+            result->planes[current_plane].count++;
+        }
+    }
+
+    // The total plane count is current_plane + 1 if there's at least one plane
+    if (result->planes[0].count > 0 || result->count > 0) {
+        result->count = current_plane + 1;
+    }
+}
+
+static ncclResult_t ncclTopoGetLocalGpusByNet(struct ncclTopoSystem* system, int index, int** locals, int* localCount) {
+  int pathType = PATH_PXB;
+  int count = 0;
+  NCCLCHECK(ncclCalloc(locals, system->nodes[GPU].count));
+  struct ncclTopoLinkList* paths = system->nodes[NET].nodes[index].paths[GPU];
+  for (int i=0; i<system->nodes[GPU].count; i++) {
+    if (paths[i].type <= pathType) {
+        (*locals)[count++] = system->nodes[GPU].nodes[i].gpu.rank;
+    }
+  }
+  *localCount = count;
+  return ncclSuccess;
+}
+
+static int ncclTopoNetPlaneParse(struct ncclComm* comm, DevPlane *devPlane)
+{
+    char* netPlaneEnv = getenv("RCCL_NET_PLANE");
+    if (NULL == netPlaneEnv)
+    {
+        return 0;
+    }
+    PlaneList planes = {0};
+    parse_planes(netPlaneEnv, &planes);
+
+    for (int i = 0; i < MAX_PLANES; i++)
+    {
+        for (int j = 0; j < MAX_ELEMENTS_PER_PLANE; j++)
+        {
+            devPlane->planeDev[i][j] = -1;
+        }
+    }
+    devPlane->planeNum = planes.count;
+    int* localGpus = NULL;
+    int localGpuCount;
+    int localNetId = -1;
+    for (int i = 0; i < devPlane->planeNum; i++)
+    {
+        for (int j = 0; j < planes.planes[i].count; j++)
+        {
+            for (int k = 0; k < comm->topo->nodes[NET].count; k++)
+            {
+                ncclNetProperties_t props;
+                NCCLCHECK(comm->ncclNet->getProperties(comm->topo->nodes[NET].nodes[k].net.dev, &props));
+                if (0 == strcmp(planes.planes[i].elements[j], props.name))
+                {
+                    localNetId = comm->topo->nodes[NET].nodes[k].net.dev;
+                    break;
+                }
+            }
+            if (localNetId != -1)
+            {
+                ncclTopoGetLocalGpusByNet(comm->topo, localNetId, &localGpus, &localGpuCount);
+                for (int m = 0; m < localGpuCount; m++)
+                {
+                    /*
+                    int found = 0;
+                    for (int r = 0; r < MAX_ELEMENTS_PER_PLANE; r++)
+                    {
+                        if (devPlane->planeDev[i][r] == localGpus[n])
+                        {
+                            found = 1;
+                        }
+                    }
+                    if (!found)
+                    {
+                        for (int m = 0; m < MAX_ELEMENTS_PER_PLANE; m++)
+                        {
+                            if (devPlane->planeDev[i][m] == -1)
+                            {
+                                devPlane->planeDev[i][m] = localGpus[n];
+                                break;
+                            }
+                        }
+                    }
+                    */
+                    for (int n = 0; n < MAX_ELEMENTS_PER_PLANE; n++)
+                    {
+                        if (devPlane->planeDev[i][n] == localGpus[m])
+                        {
+                            break;
+                        }
+                        if (devPlane->planeDev[i][n] == -1)
+                        {
+                            devPlane->planeDev[i][n] = localGpus[m];
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (localGpus != NULL)
+    {
+        free(localGpus);
+        localGpus = NULL;
+    }
+}
+
+
+static DevPlane devPlane;
+ncclResult_t ncclTopoNetPlaneCheck(struct ncclComm* comm, int *same, int myRank, int peerRank)
+{
+    if ((comm == NULL) || (same == NULL))
+    {
+        return ncclInternalError;
+    }
+    int nvmlDev0 = comm->peerInfo[myRank].nvmlDev;
+    int nvmlDev1 = comm->peerInfo[peerRank].nvmlDev;
+
+    if (devPlane.planeNum == 0)
+    {
+        ncclTopoNetPlaneParse(comm, &devPlane);
+    }
+
+    for (int i = 0; i < devPlane.planeNum; i++)
+    {
+        int count = 0;
+        for (int j = 0; j < MAX_ELEMENTS_PER_PLANE; j++)
+        {
+            if (devPlane.planeDev[i][j] != -1)
+            {
+                if (comm->peerInfo[devPlane.planeDev[i][j]].nvmlDev == nvmlDev0)
+                {
+                    count++;
+                }
+                if (comm->peerInfo[devPlane.planeDev[i][j]].nvmlDev == nvmlDev1)
+                {
+                    count++;
+                }
+                if (count == 2)
+                {
+                    break;
+                }
+            }
+        }
+        if (count == 2)
+        {
+            *same = 1;
+            break;
+        }
+    }
+
+    INFO(NCCL_INIT|NCCL_NET, "samePlane = %d, myRank:nvmlDev = %d:%d, peerRank:nvmlDev = %d:%d\n", *same, myRank, nvmlDev0, peerRank, nvmlDev1);
+    return ncclSuccess;
+}
+
+ncclResult_t ncclTopoGetSamePlaneNetDev(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank) {
+  int64_t netId = -1;
+  int netDev = -1;
+  *proxyRank = rank;
+  if (graph) {
+    // Honor the net device in the graph
+    int channel = channelId%graph->nChannels;
+    int ngpus = comm->topo->nodes[GPU].count;
+    int index = graph->intra[channel*ngpus] == rank ? 0 : 1;
+    if (graph->pattern != NCCL_TOPO_PATTERN_NVLS) {
+      netId = graph->inter[channel*2+index];
+    } else {
+      NCCLCHECK(getNvlsNetDev(comm, graph, channelId, &netId));
+    }
+    NCCLCHECK(ncclTopoIdToNetDev(comm->topo, netId, &netDev));
+    if (dev) *dev = netDev;
+    if (id) *id = netId;
+    //NCCLCHECK(ncclTopoGetIntermediateRank(comm->topo, rank, netId, proxyRank));
+  } else if (peerRank == -1) {
+    return ncclInternalError;
+  } else {
+    // Start with our local NIC and local Rank
+    NCCLCHECK(ncclTopoGetLocalNet(comm->topo, rank, channelId, &netId, &netDev));
+    if (dev) *dev = netDev;
+    if (id) *id = netId;
+    *proxyRank = rank;
   }
   return ncclSuccess;
 }
