@@ -1012,26 +1012,98 @@ ncclResult_t ncclTopoGetLocalNet(struct ncclTopoSystem* system, int rank, int ch
   return ncclSuccess;
 }
 
-ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex) {
+ncclResult_t ncclTopoGetLocalGpuForPerpeer1(struct ncclTopoSystem* system, int rank, int localRank, int channelId, int* gpuIndex) {
+  int ngpus = system->nodes[GPU].count;
+
+  // Step 1: Find the network device (netdev) corresponding to the current rank,
+  // then get the list of optimal GPUs associated with this netdev.
+  // Finally, determine the index of the target rank in this GPU list.
+  int64_t netId = -1;
+  int netDev = -1;
+  NCCLCHECK(ncclTopoGetLocalNet(system, rank, channelId, &netId, &netDev));
+  int* rankGetLocalGpus = NULL;
+  NCCLCHECK(ncclCalloc(&rankGetLocalGpus, ngpus));
+  int rankGetlocalGpuCount = 0;
+  int g_tmp;
+  NCCLCHECK(ncclTopoGetLocalGpu(system, netId, &g_tmp, 0, &rankGetLocalGpus, &rankGetlocalGpuCount));
+  // Find the index of the target rank in the GPU list
+  int rankToIndex = -1;
+  for (int lg=0; lg<rankGetlocalGpuCount; lg++) {
+    struct ncclTopoNode* gpu = system->nodes[GPU].nodes+rankGetLocalGpus[lg];
+    if (gpu->gpu.rank == rank) {
+      rankToIndex = lg;
+    }
+  }
+
+  // If the target rank is not found in the GPU list, return -1 as error
+  if(rankToIndex == -1) {
+    *gpuIndex = -1;
+    if(rankGetLocalGpus) free(rankGetLocalGpus);
+    return ncclSuccess;
+  }
+
+  // Step 2: Find the netdev corresponding to the peer's local rank,
+  // then get its optimal GPU list (to map the index from Step 1)
+  NCCLCHECK(ncclTopoGetLocalNet(system, localRank, channelId, &netId, &netDev));
+  int* localRankGetlocalGpus = NULL;
+  NCCLCHECK(ncclCalloc(&localRankGetlocalGpus, ngpus));
+  int localRankGetlocalGpuCount = 0;
+  NCCLCHECK(ncclTopoGetLocalGpu(system, netId, &g_tmp, 0, &localRankGetlocalGpus, &localRankGetlocalGpuCount));
+
+  // Step 3: Determine the final GPU index by mapping the rankToIndex from Step 1 to the peer's GPU list
+  if (rankToIndex < localRankGetlocalGpuCount) {
+    *gpuIndex = localRankGetlocalGpus[rankToIndex];
+  } else {
+    *gpuIndex = *localRankGetlocalGpus;
+  }
+
+  if(rankGetLocalGpus) free(rankGetLocalGpus);
+  if(localRankGetlocalGpus) free(localRankGetlocalGpus);
+  return ncclSuccess;
+}
+
+ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex, int localChannelId, int** gpus, int* gpuCount) { 
   int netIndex;
   NCCLCHECK(ncclTopoIdToIndex(system, NET, netId, &netIndex));
   int* localGpus = NULL;
   int localGpuCount;
-  NCCLCHECK(ncclTopoGetLocal(system, NET, netIndex, GPU, &localGpus, &localGpuCount, NULL));
-  for (int c=0; c<MAXCHANNELS; c++) {
-    for (int lg=0; lg<localGpuCount; lg++) {
+  NCCLCHECK(ncclTopoGetLocal(system, NET, netIndex, GPU, &localGpus, &localGpuCount, NULL));    
+    
+  const char *loadbalancingType = ncclGetEnv("RCCL_PXN_GPU_BALANCE");
+  if (loadbalancingType != NULL) {
+    INFO(NCCL_ENV, "RCCL_PXN_GPU_BALANCE set by environment to %s.", loadbalancingType);
+    if (strcmp(loadbalancingType, "1") == 0) {   // new GPU Balancing
+      *gpuIndex = localGpus[localChannelId % localGpuCount];
+      if (gpus) {  
+        *gpus = localGpus;
+        *gpuCount = localGpuCount;
+      } else {
+        if(localGpus) free(localGpus);
+        localGpus = NULL;
+      } 
+      return ncclSuccess;
+    } else    // default
+      goto default_loadbalancing;
+  } 
+
+default_loadbalancing: 
+  for (int c=0; c<MAXCHANNELS/**128 */; c++) {
+    for (int lg=0; lg<localGpuCount; lg++) {    
       int g = localGpus[lg];
       struct ncclTopoNode* gpu = system->nodes[GPU].nodes+g;
       int64_t id;
       NCCLCHECK(ncclTopoGetLocalNet(system, gpu->gpu.rank, c, &id, NULL));
       if (netId == id) {
         *gpuIndex = g;
-        free(localGpus);
+        if(localGpus) free(localGpus);
+        localGpus = NULL;
         return ncclSuccess;
       }
     }
   }
-  free(localGpus);
+  
+  if(localGpus) free(localGpus);
+  localGpus = NULL;
   *gpuIndex = -1;
   return ncclSuccess;
 }
