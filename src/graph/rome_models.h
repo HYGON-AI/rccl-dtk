@@ -31,6 +31,6 @@ ncclResult_t parse1H16P(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
 ncclResult_t parse4H4P(struct ncclTopoSystem* system, struct ncclTopoGraph* graph);
 ncclResult_t parseA2a8P(struct ncclTopoSystem* system, struct ncclTopoGraph* graph, const char *ringBase);
 ncclResult_t parseGIOTopos(struct ncclTopoSystem* system, struct ncclTopoGraph* graph);
-ncclResult_t parseBW(struct ncclTopoSystem* system, struct ncclTopoGraph* graph);
+ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* graph);
 
 #endif

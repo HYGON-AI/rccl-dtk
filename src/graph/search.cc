@@ -1032,7 +1032,7 @@ ncclResult_t ncclTopoCompute(ncclTopoSystem* system, struct ncclTopoGraph* graph
       }
     }
   } else if (!rcclParamModelMatchingDisable() && !graph->collNet) {
-    NCCLCHECK(parseBW(system, graph));
+    NCCLCHECK(parseHygon(system, graph));
   }
   if (graph->nChannels) return ncclSuccess;
 

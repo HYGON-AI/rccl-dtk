@@ -1765,7 +1765,7 @@ static ncclResult_t topoGetAlgoInfo(
   if (info->protocol == NCCL_PROTO_SIMPLE) {
     nc = comm->CollSimpleChannels;
     // 针对reduce和broadcast特性定制tuning
-    if (comm->nNodes > 1 && info->func <= ncclFuncReduce && info->count*ncclTypeSize(info->datatype) < 1*1024*1024){
+    if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") && comm->nNodes > 1 && info->func <= ncclFuncReduce && info->count*ncclTypeSize(info->datatype) < 1*1024*1024){
       nc = 1;
     }
   }
