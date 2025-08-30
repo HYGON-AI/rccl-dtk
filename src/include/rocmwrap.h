@@ -22,8 +22,10 @@ typedef hsa_status_t (*PFN_hsa_amd_portable_export_dmabuf)(const void* ptr, size
 typedef hsa_status_t (*PFN_hsa_agent_get_info)(hsa_agent_t agent,hsa_agent_info_t attribute,void* value);
 typedef hsa_status_t (*PFN_hsa_iterate_agents)(hsa_status_t (*callback)(hsa_agent_t agent, void* data), void* data);
 typedef hsa_status_t (*PFN_hsa_ext_get_xhcl_link_count)(hsa_agent_t src_agent, hsa_agent_t dst_agent, uint32_t *link_count);
+#ifdef HCU_SDMA_FEATURE
 typedef hsa_status_t (*PFN_hsa_ext_create_sdma_group_queue)(hsa_agent_t src_agent, hsa_agent_t dst_agent, uint32_t size, uint32_t flag, hsa_sdma_group_queue_t *group_queue);
 typedef hsa_status_t (*PFN_hsa_ext_destroy_sdma_group_queue)(hsa_agent_t agent);
+#endif
 typedef hsa_status_t (*PFN_hsa_amd_ipc_memory_create)(void* ptr, size_t len, hsa_amd_ipc_memory_t* handle);
 typedef hsa_status_t (*PFN_hsa_amd_ipc_memory_attach)(const hsa_amd_ipc_memory_t* handle, size_t len,uint32_t num_agents,const hsa_agent_t* mapping_agents,void** mapped_ptr);
 typedef hsa_status_t (*PFN_hsa_amd_ipc_memory_detach)(void* mapped_ptr);
@@ -140,8 +142,10 @@ DECLARE_ROCM_PFN_EXTERN(hsa_status_string);
 DECLARE_ROCM_PFN_EXTERN(hsa_agent_get_info);
 DECLARE_ROCM_PFN_EXTERN(hsa_iterate_agents);
 DECLARE_ROCM_PFN_EXTERN(hsa_ext_get_xhcl_link_count);
+#ifdef HCU_SDMA_FEATURE
 DECLARE_ROCM_PFN_EXTERN(hsa_ext_create_sdma_group_queue);
 DECLARE_ROCM_PFN_EXTERN(hsa_ext_destroy_sdma_group_queue);
+#endif
 DECLARE_ROCM_PFN_EXTERN(hsa_amd_ipc_memory_create);
 DECLARE_ROCM_PFN_EXTERN(hsa_amd_ipc_memory_attach);
 DECLARE_ROCM_PFN_EXTERN(hsa_amd_ipc_memory_detach);
@@ -164,8 +168,10 @@ extern bool ncclCudaLaunchBlocking; // initialized by ncclCudaLibraryInit()
 ncclResult_t rocm_hsa_agent_get_info(hsa_agent_t agent,hsa_agent_info_t attribute,void* value);
 ncclResult_t rocm_hsa_iterate_agents(hsa_status_t (*callback)(hsa_agent_t agent, void* data), void* data);
 ncclResult_t rocm_hsa_ext_get_xhcl_link_count(hsa_agent_t src_agent, hsa_agent_t dst_agent, uint32_t *link_count);
+#ifdef HCU_SDMA_FEATURE
 ncclResult_t rocm_hsa_ext_create_sdma_group_queue(hsa_agent_t src_agent, hsa_agent_t dst_agent, uint32_t size, uint32_t flag, hsa_sdma_group_queue_t *group_queue);
 ncclResult_t rocm_hsa_ext_destroy_sdma_group_queue(hsa_agent_t agent);
+#endif
 ncclResult_t rocm_hsa_amd_ipc_memory_create(void* ptr, size_t len, hsa_amd_ipc_memory_t* handle);
 ncclResult_t rocm_hsa_amd_ipc_memory_attach(const hsa_amd_ipc_memory_t* handle, size_t len,uint32_t num_agents,const hsa_agent_t* mapping_agents,void** mapped_ptr);
 ncclResult_t rocm_hsa_amd_ipc_memory_detach(void* mapped_ptr);
