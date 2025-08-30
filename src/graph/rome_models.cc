@@ -2581,7 +2581,7 @@ exit:
   return ncclSuccess;
 }
 
-ncclResult_t parseBW(struct ncclTopoSystem* system, struct ncclTopoGraph* graph) {
+ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* graph) {
   ncclResult_t r;
   constexpr int NGPUS = 8;
   const int ngpus = system->nodes[GPU].count;
@@ -2590,7 +2590,9 @@ ncclResult_t parseBW(struct ncclTopoSystem* system, struct ncclTopoGraph* graph)
 
   if (IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx936"))
     system->tuning = 1;
-  else 
+  else if (IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx926") || IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx928") )
+    system->tuning = 2;
+  else
     return ncclSuccess;
   if (ngpus != NGPUS)
     return ncclSuccess;
