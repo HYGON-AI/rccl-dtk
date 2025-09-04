@@ -940,15 +940,14 @@ static ncclResult_t addP2pToPlan(
     stepSize[dir] = comm->buffSizes[protocol[dir]]/NCCL_STEPS;
     if (protocol[dir] == NCCL_PROTO_SIMPLE) stepSize[dir] = comm->p2pChunkSize;
     chunkSize[dir] = stepSize[dir];
-    if (comm->nNodes == 1 && p2p->p2pType == P2pAllToAll && protocol[dir] == NCCL_PROTO_SIMPLE) {
-      chunkSize[dir] = bytes[dir] <= _2MB ? _32KB : (bytes[dir] <= _256MB ? _128KB : _256KB);
-    }
     if (paramChunkSize != 0) {
       chunkSize[dir] = paramChunkSize;
     } else if (network[dir]) {
       // Tune chunk size for the network
       if (protocol[dir] == NCCL_PROTO_SIMPLE && bytes[dir] < stepSize[dir]) chunkSize[dir] /= 4;
       else if (bytes[dir] < 8*stepSize[dir]) chunkSize[dir] /= 2;
+    } else if (comm->autoPerPeerOn && comm->nNodes == 1 && protocol[dir] == NCCL_PROTO_SIMPLE && bytes[dir] <= _1MB) {
+      chunkSize[dir] = _32KB;
     }
 
     chunkDataSize[dir] = chunkSize[dir];
@@ -2184,20 +2183,20 @@ static ncclResult_t hostToDevRedOp(
 static const int PerPeerChannelsConfig[][6] = {
   // Index: [SingleNodeAlltoAll, SingleNodeGather, SingleNodeScatter, MultiNodesAlltoAll, MultiNodesGather, MultiNodesScatter]
   {2,2,2,1,1,2},    /* 0: 1B-8KB */
-  {2,16,4,1,1,2},   /* 1: 16KB   */
-  {2,16,4,1,1,2},   /* 2: 32KB   */
-  {2,16,2,1,1,2},   /* 3: 64KB   */
+  {2,16,2,1,1,2},   /* 1: 16KB   */
+  {2,16,2,1,1,2},   /* 2: 32KB   */
+  {2,16,4,1,1,2},   /* 3: 64KB   */
   {4,16,4,1,1,1},   /* 4: 128KB  */
-  {4,16,2,1,2,1},   /* 5: 256KB  */
-  {4,16,2,1,1,1},   /* 6: 512KB  */
-  {4,2,16,1,1,1},   /* 7: 1MB    */
-  {16,2,16,1,2,2},  /* 8: 2MB    */
-  {16,2,16,1,1,2},  /* 9: 4MB    */
-  {16,2,16,1,1,2},  /* 10: 8MB   */
-  {16,2,16,1,1,2},  /* 11: 16MB  */
-  {16,2,16,1,1,2},  /* 12: 32MB  */
-  {16,2,16,1,1,2},  /* 13: 64MB  */
-  {16,2,16,1,1,2},  /* 14: 128MB */
+  {4,16,4,1,2,1},   /* 5: 256KB  */
+  {4,16,4,1,1,1},   /* 6: 512KB  */
+  {4,4,4,1,1,1},    /* 7: 1MB    */
+  {4,2,4,1,2,2},    /* 8: 2MB    */
+  {4,2,4,1,1,2},    /* 9: 4MB    */
+  {4,2,4,1,1,2},    /* 10: 8MB   */
+  {4,2,4,1,1,2},    /* 11: 16MB  */
+  {4,2,4,1,1,2},    /* 12: 32MB  */
+  {16,4,16,1,1,2},  /* 13: 64MB  */
+  {16,4,16,1,1,2},  /* 14: 128MB */
   {16,4,16,1,1,2},  /* 15: 256MB */
   {16,16,16,1,1,2}  /* 16: 512MB */
 };
@@ -2244,17 +2243,16 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
     p2p->opCount = comm->opCount;
     p2p->UserProto = info->UserProto;
     p2p->UserChannels = info->UserChannels;
-    p2p->p2pType = P2pInvalid;
     ncclIntruQueueEnqueue(
       isSendNotRecv ? &planner->peers[peer].sendQueue : &planner->peers[peer].recvQueue,
       p2p);
     planner->nTasksP2p += 1;
     if (comm->autoPerPeerOn) {
-      p2p->p2pType = currentParentP2p();
-      if (p2p->p2pType == P2pAllToAll || p2p->p2pType == P2pGather || p2p->p2pType == P2pScatter) {
-        comm->p2pnChannelsPerPeer = getP2pPerPeerChannels(comm, info, p2p->p2pType);
+      ncclP2pInfo_t parentP2p = currentParentP2p();
+      if (parentP2p == P2pAllToAll || parentP2p == P2pGather || parentP2p == P2pScatter) {
+        comm->p2pnChannelsPerPeer = getP2pPerPeerChannels(comm, info, parentP2p);
         comm->devComm->p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
-      } else if (p2p->p2pType == P2pInvalid && comm->nNodes > 1) {
+      } else if (parentP2p == P2pInvalid && comm->nNodes > 1) {
         comm->p2pnChannelsPerPeer = 16;
         comm->devComm->p2pnChannelsPerPeer = 16;
       } else if (comm->p2pnChannelsPerPeer != comm->oriP2pnChannelsPerPeer) {

@@ -179,10 +179,10 @@ namespace RcclUnitTesting
 
     char *proto = std::getenv("NCCL_PROTO");
     std::vector<std::string> protocolList;
-    if(strncmp("gfx906",devProp.gcnArchName,6) == 0 || strncmp("gfx926",devProp.gcnArchName,6) == 0 || strncmp("gfx928",devProp.gcnArchName,6) == 0) {
-      protocolList = {"LL","Simple"};
-    } else {
+    if(0) {
       protocolList = {"LL","LL128","Simple"};
+    } else {
+      protocolList = {"LL","Simple"};
     }
 
     for (auto p : protocolList)

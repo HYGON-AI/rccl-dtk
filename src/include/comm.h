@@ -247,7 +247,6 @@ struct ncclTaskP2p {
   //Optional User Configuration Parameter: Protocol Sting/Algorithm String/nChannels
   const char* UserProto;
   int UserChannels;
-  ncclP2pInfo_t p2pType;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
