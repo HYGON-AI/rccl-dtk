@@ -1340,6 +1340,19 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
       allXgmi &= isXGMI;
     }
   }
+  //minlinkType
+  {
+    struct ncclTopoSystem* system= comm->topo;
+    comm->minLinkType = LINK_NET;
+    for (int g1 = 0; g1 < system->nodes[GPU].count; g1++){
+      for (int g2 = 0; g2 < system->nodes[GPU].count; g2++){
+        if (g1 == g2) continue;
+        struct ncclTopoNode* gpu1 = system->nodes[GPU].nodes+g1;
+        struct ncclTopoLinkList* path = gpu1->paths[GPU]+g2;
+        comm->minLinkType = std::min(comm->minLinkType, path->type);
+      }
+    }
+  }
   // Initialize num P2P LL buffers for this communicator
   comm->allocP2pNetLLBuffers = ncclParamAllocP2pNetLLBuffers() == 1;
 

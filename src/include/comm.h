@@ -485,6 +485,7 @@ struct ncclComm {
   int p2pnChannelsPerPeer;
   int oriP2pnChannelsPerPeer;
   bool autoPerPeerOn;
+  int minLinkType; // 所有gpu间的最快的链接类型
 
   // Should this comm allocate LL buffers for network P2P connections?
   bool allocP2pNetLLBuffers;
