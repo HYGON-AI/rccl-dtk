@@ -12,8 +12,13 @@ namespace RcclUnitTesting
     TestBed testBed;
 
     // Configuration
+#ifdef FULL_STRESS_TEST
+    std::vector<ncclDataType_t> const& dataTypes       = {ncclInt32, ncclUint8, ncclBfloat16, ncclFloat64};
+    std::vector<int>            const  numElements     = {104857600, 1048576, 53327, 1024, 511};
+#else
     std::vector<ncclDataType_t> const& dataTypes       = {ncclInt32, ncclFloat16, ncclFloat64};
-    std::vector<int>            const  numElements     = {1048576, 53327, 1024, 0};
+    std::vector<int>            const  numElements     = {1048576, 53327, 1024};
+#endif
     bool                        const  inPlace         = false;
     bool                        const  useManagedMem   = false;
 

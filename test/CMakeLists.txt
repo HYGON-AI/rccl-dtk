@@ -41,6 +41,12 @@ if(BUILD_TESTS)
 
   include_directories(${GTEST_INCLUDE_DIRS} ./common)
 
+  option(FULL_STRESS_TEST "Enable full stress test" OFF)
+
+  if(FULL_STRESS_TEST)
+    add_compile_definitions(FULL_STRESS_TEST)
+  endif()
+
   # Collect testing framework source files
   set(TEST_SOURCE_FILES
     AllGatherTests.cpp
