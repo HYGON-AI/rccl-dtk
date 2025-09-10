@@ -16,10 +16,15 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollAllToAll};
-    std::vector<ncclDataType_t> const dataTypes       = {ncclFloat16, ncclFloat32};
+#ifdef FULL_STRESS_TEST
+    std::vector<ncclDataType_t> const dataTypes       = {ncclFloat32, ncclInt, ncclBfloat16};
+    std::vector<int>            const numElements     = {1048576, 1024, 511};
+#else
+    std::vector<ncclDataType_t> const dataTypes       = {ncclFloat32};
+    std::vector<int>            const numElements     = {1048576, 1024};
+#endif
     std::vector<ncclRedOp_t>    const redOps          = {ncclSum};
     std::vector<int>            const roots           = {0};
-    std::vector<int>            const numElements     = {1048576, 1024};
     std::vector<bool>           const inPlaceList     = {false};
     std::vector<bool>           const managedMemList  = {false};
     std::vector<bool>           const useHipGraphList = {false};
@@ -35,7 +40,11 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollAllToAll};
+#ifdef FULL_STRESS_TEST
+    std::vector<ncclDataType_t> const dataTypes       = {ncclFloat64, ncclBfloat16, ncclUint32, ncclFp8E4M3, ncclFp8E5M2};
+#else
     std::vector<ncclDataType_t> const dataTypes       = {ncclFloat64, ncclBfloat16, ncclFp8E4M3, ncclFp8E5M2};
+#endif
     std::vector<ncclRedOp_t>    const redOps          = {ncclSum};
     std::vector<int>            const roots           = {0};
     std::vector<int>            const numElements     = {5685};
@@ -54,7 +63,11 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollAllToAll};
+#ifdef FULL_STRESS_TEST
+    std::vector<ncclDataType_t> const dataTypes       = {ncclUint8, ncclInt32, ncclFloat16, ncclFloat64};
+#else
     std::vector<ncclDataType_t> const dataTypes       = {ncclUint8};
+#endif
     std::vector<ncclRedOp_t>    const redOps          = {ncclSum};
     std::vector<int>            const roots           = {0};
     std::vector<int>            const numElements     = {384 * 1024, 1024};
@@ -73,10 +86,15 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollAllToAll};
+#ifdef FULL_STRESS_TEST
+    std::vector<ncclDataType_t> const dataTypes       = {ncclUint32, ncclUint64, ncclFloat16, ncclFloat64};
+    std::vector<int>            const numElements     = {1048576, 1024, 126};
+#else
     std::vector<ncclDataType_t> const dataTypes       = {ncclUint32, ncclUint64};
+    std::vector<int>            const numElements     = {1048576};
+#endif
     std::vector<ncclRedOp_t>    const redOps          = {ncclSum};
     std::vector<int>            const roots           = {0};
-    std::vector<int>            const numElements     = {1048576};
     std::vector<bool>           const inPlaceList     = {false};
     std::vector<bool>           const managedMemList  = {true};
     std::vector<bool>           const useHipGraphList = {true};

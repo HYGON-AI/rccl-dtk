@@ -20,18 +20,38 @@ namespace RcclUnitTesting
                                                 ncclCollAllReduce,
                                                 ncclCollGather,
                                                 ncclCollScatter};
-    int        const  numElements   = 1048576;
+    // int        const  numElements   = 1048576;
     bool       const  inPlace       = false;
     bool       const  useManagedMem = false;
     bool       const  useBlocking   = false;
+    
+#ifdef FULL_STRESS_TEST
+    std::vector<ncclDataType_t> const dataTypes       = {ncclFloat32, ncclBfloat16, ncclInt8, ncclInt32};
+    std::vector<int>            const numElements     = {1048576, 500, 1023, 125};
+#else
+    std::vector<ncclDataType_t> const dataTypes       = {ncclFloat32};
+    std::vector<int>            const numElements     = {1048576};
+#endif
 
     OptionalColArgs options;
     options.redOp = ncclSum;
 
     bool isCorrect = true;
+    std::vector<int> sortedN = numElements;
+    std::sort(sortedN.rbegin(), sortedN.rend());
     for (int totalRanks : testBed.ev.GetNumGpusList())
     for (int isMultiProcess : testBed.ev.GetIsMultiProcessList())
     {
+        
+      if (testing::Test::HasFailure())
+      {
+        isCorrect = false;
+        continue;
+      }
+
+      for (int numIdx = 0; numIdx < numElements.size() && isCorrect; ++numIdx)
+      for (int dtIdx = 0; dtIdx < dataTypes.size() && isCorrect; ++dtIdx){
+
       int const numProcesses = isMultiProcess ? totalRanks : 1;
       // Initialize communicators in non-blocking mode
       const std::vector<int>& gpuPriorityOrder = testBed.ev.GetGpuPriorityOrder();
@@ -47,13 +67,13 @@ namespace RcclUnitTesting
         int numInputElements;
         int numOutputElements;
         CollectiveArgs::GetNumElementsForFuncType(funcType,
-                                                  numElements,
+                                                  sortedN[numIdx],
                                                   totalRanks,
                                                   &numInputElements,
                                                   &numOutputElements);
 
         testBed.SetCollectiveArgs(funcType,
-                                  ncclFloat,
+                                  dataTypes[dtIdx],
                                   numInputElements,
                                   numOutputElements,
                                   options);
@@ -61,11 +81,23 @@ namespace RcclUnitTesting
         testBed.AllocateMem(inPlace, useManagedMem);
         testBed.PrepareData();
         testBed.ExecuteCollectives();
+        if (testing::Test::HasFailure())
+        {
+          isCorrect = false;
+          continue;
+        }
         testBed.ValidateResults(isCorrect);
-        testBed.DeallocateMem();
+        if (testing::Test::HasFailure())
+        {
+          isCorrect = false;
+          continue;
+        }
+      testBed.DeallocateMem();
       }
       testBed.DestroyComms();
     }
+    }
+
     testBed.Finalize();
   }
 }

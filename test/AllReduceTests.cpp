@@ -14,10 +14,16 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollAllReduce};
+#ifdef FULL_STRESS_TEST
+    std::vector<ncclDataType_t> const dataTypes       = {ncclFloat32, ncclInt8, ncclInt32, ncclBfloat16, ncclFp8E4M3, ncclFp8E5M2};
+    std::vector<ncclRedOp_t>    const redOps          = {ncclSum, ncclProd};
+    std::vector<int>            const numElements     = {393216, 384, 1024, 104857600};
+#else
     std::vector<ncclDataType_t> const dataTypes       = {ncclFloat32, ncclFp8E4M3, ncclFp8E5M2};
     std::vector<ncclRedOp_t>    const redOps          = {ncclSum};
-    std::vector<int>            const roots           = {0};
     std::vector<int>            const numElements     = {393216, 384};
+#endif
+    std::vector<int>            const roots           = {0};
     std::vector<bool>           const inPlaceList     = {false};
     std::vector<bool>           const managedMemList  = {false};
     std::vector<bool>           const useHipGraphList = {false};
@@ -33,10 +39,16 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollAllReduce};
+#ifdef FULL_STRESS_TEST
+    std::vector<ncclDataType_t> const dataTypes       = {ncclFloat16, ncclFloat64, ncclUint8, ncclInt32, ncclFp8E4M3, ncclFp8E5M2};
+    std::vector<ncclRedOp_t>    const redOps          = {ncclSum, ncclProd, ncclMax, ncclAvg};
+    std::vector<int>            const numElements     = {12888, 1048576, 511};
+#else
     std::vector<ncclDataType_t> const dataTypes       = {ncclFloat16, ncclFloat64, ncclFp8E4M3, ncclFp8E5M2};
     std::vector<ncclRedOp_t>    const redOps          = {ncclMin};
-    std::vector<int>            const roots           = {0};
     std::vector<int>            const numElements     = {12888};
+#endif
+    std::vector<int>            const roots           = {0};
     std::vector<bool>           const inPlaceList     = {false};
     std::vector<bool>           const managedMemList  = {false};
     std::vector<bool>           const useHipGraphList = {true};
@@ -52,10 +64,16 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollAllReduce};
-    std::vector<ncclDataType_t> const dataTypes       = {ncclInt32, ncclInt8};
-    std::vector<ncclRedOp_t>    const redOps          = {ncclProd};
-    std::vector<int>            const roots           = {0};
+#ifdef FULL_STRESS_TEST
+    std::vector<ncclDataType_t> const dataTypes       = {ncclInt32, ncclInt8, ncclBfloat16, ncclFloat64, ncclFp8E4M3, ncclFp8E5M2};
+    std::vector<ncclRedOp_t>    const redOps          = {ncclSum, ncclProd, ncclMax, ncclAvg};
+    std::vector<int>            const numElements     = {384, 4096, 8191, 1475864};
+#else
+    std::vector<ncclDataType_t> const dataTypes       = {ncclInt32, ncclInt8, ncclFp8E4M3, ncclFp8E5M2};
     std::vector<int>            const numElements     = {384};
+    std::vector<ncclRedOp_t>    const redOps          = {ncclProd};
+#endif
+    std::vector<int>            const roots           = {0};
     std::vector<bool>           const inPlaceList     = {true};
     std::vector<bool>           const managedMemList  = {false};
     std::vector<bool>           const useHipGraphList = {false};
@@ -71,10 +89,16 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollAllReduce};
+#ifdef FULL_STRESS_TEST
+    std::vector<ncclDataType_t> const dataTypes       = {ncclInt32, ncclFloat16, ncclUint8, ncclFloat64, ncclFp8E4M3, ncclFp8E5M2};
+    std::vector<ncclRedOp_t>    const redOps          = {ncclMax, ncclProd, ncclSum};
+    std::vector<int>            const numElements     = {393216, 2048, 6572, 21864750};
+#else
     std::vector<ncclDataType_t> const dataTypes       = {ncclInt32, ncclFp8E4M3, ncclFp8E5M2};
     std::vector<ncclRedOp_t>    const redOps          = {ncclMax};
+    std::vector<int>            const numElements     = {393216};
+#endif
     std::vector<int>            const roots           = {0};
-    std::vector<int>            const numElements     = {393216, 12888, 384};
     std::vector<bool>           const inPlaceList     = {true};
     std::vector<bool>           const managedMemList  = {false};
     std::vector<bool>           const useHipGraphList = {true};
@@ -90,10 +114,16 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollAllReduce};
+#ifdef FULL_STRESS_TEST
+    std::vector<ncclDataType_t> const dataTypes       = {ncclUint8, ncclUint64, ncclFloat16};
+    std::vector<ncclRedOp_t>    const redOps          = {ncclSum, ncclProd, ncclMax, ncclAvg};
+    std::vector<int>            const numElements     = {2500, 10485760, 1023, 81921};
+#else
     std::vector<ncclDataType_t> const dataTypes       = {ncclUint8, ncclUint64};
     std::vector<ncclRedOp_t>    const redOps          = {ncclSum};
-    std::vector<int>            const roots           = {0};
     std::vector<int>            const numElements     = {2500};
+#endif
+    std::vector<int>            const roots           = {0};
     std::vector<bool>           const inPlaceList     = {false};
     std::vector<bool>           const managedMemList  = {true};
     std::vector<bool>           const useHipGraphList = {false};

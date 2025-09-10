@@ -185,6 +185,7 @@ namespace RcclUnitTesting
       protocolList = {"LL","Simple"};
     }
 
+
     for (auto p : protocolList)
     {
       usElapsed = 0;
