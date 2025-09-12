@@ -14,7 +14,7 @@ endif()
 
 # RCCL project
 #==================================================================================================
-project(rccl CXX)
+project(RCCL LANGUAGES C CXX)
 
 # Build options
 #==================================================================================================
@@ -47,8 +47,9 @@ set(DEFAULT_GPUS
 # Load CMake modules
 #==================================================================================================
 include(CheckIncludeFiles)
+include(CheckIncludeFileCXX)
 include(CheckSymbolExists)
-include(cmake/Dependencies.cmake) # GTest, rocm-cmake, rocm_local_targets
+include(cmake/Dependencies.cmake) # rocm-cmake, rocm_local_targets
 include(cmake/CheckSymbolExistsNoWarn.cmake)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -619,28 +620,42 @@ foreach(SRC_FILE ${SRC_FILES})
   if (NOT EXISTS ${CMAKE_SOURCE_DIR}/${SRC_FILE})
     message(FATAL_ERROR "Unable to find file listed in CMakeLists.txt: ${CMAKE_SOURCE_DIR}/${SRC_FILE}")
   endif()
+  
+  # 特殊处理 C 文件
+  if(SRC_FILE MATCHES "\\.c$")
+    set_source_files_properties(${HIP_FILE} PROPERTIES LANGUAGE C)
+    add_custom_command(
+      OUTPUT ${HIP_FILE}
+      COMMAND mkdir -p ${HIP_FILE_DIR}
+              && cp ${CMAKE_SOURCE_DIR}/${SRC_FILE} ${HIP_FILE}
+      MAIN_DEPENDENCY ${SRC_FILE}
+      COMMENT "Copying C file ${SRC_FILE} -> ${HIP_FILE}"
+    )
+  else()
+    # Establish hipified copy of the source file
+    set(HIP_FILE "${HIPIFY_DIR}/${SRC_FILE}")
+    get_filename_component(HIP_FILE_DIR ${HIP_FILE} DIRECTORY)
 
-  # Establish hipified copy of the source file
-  set(HIP_FILE "${HIPIFY_DIR}/${SRC_FILE}")
-  get_filename_component(HIP_FILE_DIR ${HIP_FILE} DIRECTORY)
+    # Make sure the file name is unique and there is no duplicate
+    add_file_unique(HIP_SOURCES ${HIP_FILE})
 
-  # Make sure the file name is unique and there is no duplicate
-  add_file_unique(HIP_SOURCES ${HIP_FILE})
+    # Convert .cu files to .cpp so that they get processed properly
+    string(REPLACE "\.cu" "\.cu.cpp" HIP_FILE ${HIP_FILE})
+    list(APPEND HIP_SOURCES ${HIP_FILE})
 
-  # Convert .cu files to .cpp so that they get processed properly
-  string(REPLACE "\.cu" "\.cu.cpp" HIP_FILE ${HIP_FILE})
-  list(APPEND HIP_SOURCES ${HIP_FILE})
-
-  # Create a custom command to create hipified source code
-  add_custom_command(
-    OUTPUT ${HIP_FILE}
-    COMMAND mkdir -p ${HIP_FILE_DIR}
-            && ${hipify-perl_executable} -quiet-warnings ${CMAKE_SOURCE_DIR}/${SRC_FILE} -o ${HIP_FILE}
-            && ${CMAKE_COMMAND} -E env bash ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/add_unroll.sh ${HIP_FILE}
-    MAIN_DEPENDENCY ${SRC_FILE}
-    COMMENT "Hipifying ${SRC_FILE} -> ${HIP_FILE}"
-  )
+    # Create a custom command to create hipified source code
+    add_custom_command(
+      OUTPUT ${HIP_FILE}
+      COMMAND mkdir -p ${HIP_FILE_DIR}
+              && ${hipify-perl_executable} -quiet-warnings ${CMAKE_SOURCE_DIR}/${SRC_FILE} -o ${HIP_FILE}
+              && ${CMAKE_COMMAND} -E env bash ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/add_unroll.sh ${HIP_FILE}
+      MAIN_DEPENDENCY ${SRC_FILE}
+      COMMENT "Hipifying ${SRC_FILE} -> ${HIP_FILE}"
+    )
+  endif()
 endforeach()
+
+set_source_files_properties(${HIPIFY_DIR}/src/misc/api_trace.c PROPERTIES LANGUAGE C)
 
 # Generate device/host tables and all the collective functions that are going to be in librccl.so
 #==================================================================================================
