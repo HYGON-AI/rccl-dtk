@@ -13,11 +13,20 @@ if(BUILD_TESTS)
   endif()
   if (BUILD_TESTS_ONLY)
     add_compile_options(-std=c++14)
-    find_package(GTest 1.11)
+    # find_package(GTest 1.11)
     find_package(hip REQUIRED)
     find_package(ROCM REQUIRED)
     include(ROCMInstallTargets)
   endif()
+
+  # 单独给 googletest 一个构建目录，并传递编译器
+  set(GTEST_BINARY_DIR ${CMAKE_BINARY_DIR}/googletest-build)
+  set(GTEST_SOURCE_DIR ${PROJECT_SOURCE_DIR}/googletest)
+
+  add_subdirectory(${GTEST_SOURCE_DIR} ${GTEST_BINARY_DIR} EXCLUDE_FROM_ALL)
+
+  enable_testing()
+  include(GoogleTest)
 
   find_package(hsa-runtime64 PATHS /opt/rocm )
   if(${hsa-runtime64_FOUND})
@@ -101,7 +110,7 @@ if(BUILD_TESTS)
   endif()
 
   ## Set rccl-UnitTests linked libraries
-  target_link_libraries(rccl-UnitTests PRIVATE ${GTEST_BOTH_LIBRARIES})
+  target_link_libraries(rccl-UnitTests PRIVATE GTest::gtest GTest::gtest_main)
   target_link_libraries(rccl-UnitTests PRIVATE hip::host hip::device hsa-runtime64::hsa-runtime64)
   target_link_libraries(rccl-UnitTests PRIVATE Threads::Threads)
   if(OPENMP_TESTS_ENABLED)
