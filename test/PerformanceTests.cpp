@@ -205,9 +205,7 @@ std::string getDCUArch() {
     printf("[ ERROR    ] Can not get device arch!\n");
     return "NULL";
   }
-  std::string archName(props.name);
-  std::transform(archName.begin(), archName.end(), archName.begin(), ::tolower);
-  return archName;
+  return props.gcnArchName;
 }
 
 //Calculate Log2
@@ -295,14 +293,18 @@ hipError_t releaseResource(int numIntraRank, std::vector<ncclComm_t>& comm, floa
   return hipSuccess;
 }
 
+  
+
 namespace RcclUnitTesting {
-  std::string arch = getDCUArch(); 
+  
   class Performance : public ::testing::TestWithParam<int> {};
   TEST_P(Performance, AllReduce)
-{
+  {
     int iterNum = 30;
     int byteSize = GetParam();
-    if (!std::strcmp(arch.c_str(), "gfx936")){
+    std::string archName = getDCUArch();
+
+    if (!std::strcmp(archName.c_str(), "gfx936")){
       // Set environment variables to achieve optimal performance
       if (setenv("NCCL_NCHANNELS_PER_PEER", "4", 1) != 0 || 
           setenv("NCCL_MIN_NCHANNELS", "16", 1) != 0 || 
@@ -378,13 +380,15 @@ namespace RcclUnitTesting {
 
     // Release all resources
     releaseResource(numIntraRank, comm, iputCpu, oputCpu, iputGpu, oputGpu, stream);
-}
+  }
+
   TEST_P(Performance, ReduceScatter)
   {
     int iterNum = 30;
     int byteSize = GetParam();
+    std::string archName = getDCUArch();
 
-    if (!std::strcmp(arch.c_str(), "gfx936")){
+    if (!std::strcmp(archName.c_str(), "gfx936")){
       // Set environment variables to achieve optimal performance
       if (setenv("NCCL_NCHANNELS_PER_PEER", "4", 1) != 0 || setenv("NCCL_MIN_NCHANNELS", "16", 1) != 0 || 
           setenv("NCCL_MAX_NCHANNELS", "16", 1) != 0 || setenv("NCCL_MIN_P2P_NCHANNELS", "4", 1) != 0 || 
@@ -464,8 +468,9 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
+    std::string archName = getDCUArch();
 
-    if (!std::strcmp(arch.c_str(), "gfx936")){
+    if (!std::strcmp(archName.c_str(), "gfx936")){
       // Set environment variables to achieve optimal performance
       if (setenv("NCCL_NCHANNELS_PER_PEER", "4", 1) != 0 || setenv("NCCL_MIN_NCHANNELS", "16", 1) != 0 || 
           setenv("NCCL_MAX_NCHANNELS", "16", 1) != 0 || setenv("NCCL_MIN_P2P_NCHANNELS", "4", 1) != 0 || 
@@ -544,8 +549,9 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
+    std::string archName = getDCUArch();
 
-    if (!std::strcmp(arch.c_str(), "gfx936")){
+    if (!std::strcmp(archName.c_str(), "gfx936")){
       // Set environment variables to achieve optimal performance
       if (setenv("NCCL_NCHANNELS_PER_PEER", "4", 1) != 0 || setenv("NCCL_MIN_NCHANNELS", "16", 1) != 0 || 
           setenv("NCCL_MAX_NCHANNELS", "16", 1) != 0 || setenv("NCCL_MIN_P2P_NCHANNELS", "4", 1) != 0 || 
@@ -625,8 +631,9 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
+    std::string archName = getDCUArch();
 
-    if (!std::strcmp(arch.c_str(), "gfx936")){
+    if (!std::strcmp(archName.c_str(), "gfx936")){
       // Set environment variables to achieve optimal performance
       if (setenv("NCCL_NCHANNELS_PER_PEER", "4", 1) != 0 || setenv("NCCL_MIN_NCHANNELS", "16", 1) != 0 || 
           setenv("NCCL_MAX_NCHANNELS", "16", 1) != 0 || setenv("NCCL_MIN_P2P_NCHANNELS", "4", 1) != 0 || 
@@ -706,8 +713,9 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
+    std::string archName = getDCUArch();
 
-    if (!std::strcmp(arch.c_str(), "gfx936")){
+    if (!std::strcmp(archName.c_str(), "gfx936")){
       // Set environment variables to achieve optimal performance
       if (setenv("NCCL_NCHANNELS_PER_PEER", "4", 1) != 0 || setenv("NCCL_MIN_NCHANNELS", "16", 1) != 0 || 
           setenv("NCCL_MAX_NCHANNELS", "16", 1) != 0 || setenv("NCCL_MIN_P2P_NCHANNELS", "4", 1) != 0 || 
@@ -787,8 +795,9 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
+    std::string archName = getDCUArch();
 
-    if (!std::strcmp(arch.c_str(), "gfx936")){
+    if (!std::strcmp(archName.c_str(), "gfx936")){
       // Set environment variables to achieve optimal performance
       if (setenv("NCCL_NCHANNELS_PER_PEER", "4", 1) != 0 || setenv("NCCL_MIN_NCHANNELS", "16", 1) != 0 || 
           setenv("NCCL_MAX_NCHANNELS", "16", 1) != 0 || setenv("NCCL_MIN_P2P_NCHANNELS", "4", 1) != 0 || 
@@ -868,8 +877,9 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
+    std::string archName = getDCUArch();
 
-    if (!std::strcmp(arch.c_str(), "gfx936")){
+    if (!std::strcmp(archName.c_str(), "gfx936")){
       // Set environment variables to achieve optimal performance
       if (setenv("NCCL_NCHANNELS_PER_PEER", "4", 1) != 0 || setenv("NCCL_MIN_NCHANNELS", "16", 1) != 0 || 
           setenv("NCCL_MAX_NCHANNELS", "16", 1) != 0 || setenv("NCCL_MIN_P2P_NCHANNELS", "4", 1) != 0 || 
@@ -959,8 +969,9 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
+    std::string archName = getDCUArch();
     
-    if (!std::strcmp(arch.c_str(), "gfx936")){
+    if (!std::strcmp(archName.c_str(), "gfx936")){
       // Set environment variables to achieve optimal performance
       if (setenv("NCCL_NCHANNELS_PER_PEER", "4", 1) != 0 || setenv("NCCL_MIN_NCHANNELS", "16", 1) != 0 || 
           setenv("NCCL_MAX_NCHANNELS", "16", 1) != 0 || setenv("NCCL_MIN_P2P_NCHANNELS", "4", 1) != 0 || 
@@ -1040,8 +1051,9 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
+    std::string archName = getDCUArch();
 
-    if (!std::strcmp(arch.c_str(), "gfx936")){
+    if (!std::strcmp(archName.c_str(), "gfx936")){
       // Set environment variables to achieve optimal performance
       if (setenv("NCCL_NCHANNELS_PER_PEER", "4", 1) != 0 || setenv("NCCL_MIN_NCHANNELS", "16", 1) != 0 || 
           setenv("NCCL_MAX_NCHANNELS", "16", 1) != 0 || setenv("NCCL_MIN_P2P_NCHANNELS", "4", 1) != 0 || 
