@@ -1615,7 +1615,7 @@ void* ncclProxyServiceUDS(void* _args) {
     /* never let proxy service thread blocks in poll, or it cannot receive abortFlag. */
     int ret;
     do {
-      ret = poll(pollfds, 1, 500);
+      ret = poll(pollfds, 1, 10);
     } while (ret < 0 && errno == EINTR);
     if (ret < 0) {
       WARN("[Proxy Service UDS] Poll failed: %s", strerror(errno));
