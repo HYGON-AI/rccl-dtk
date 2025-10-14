@@ -110,9 +110,7 @@ void debug_sleep()
 ncclResult_t commSetUnrollFactor(struct ncclComm* comm) {
   hipDeviceProp_t devProp;
   CUDACHECK(hipGetDeviceProperties(&devProp, comm->cudaDev));
-  if(IsArchMatch(devProp.gcnArchName, "gfx906") || IsArchMatch(devProp.gcnArchName, "gfx926") || 
-     IsArchMatch(devProp.gcnArchName, "gfx928") || (IsArchMatch(devProp.gcnArchName, "gfx94")
-    && devProp.multiProcessorCount > 80))
+  if((IsArchMatch(devProp.gcnArchName, "gfx94") && devProp.multiProcessorCount > 80))
     comm->unroll = NCCL_UNROLL_2;
   else
     comm->unroll = NCCL_UNROLL_4;
