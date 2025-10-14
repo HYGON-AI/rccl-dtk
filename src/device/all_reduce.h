@@ -33,6 +33,7 @@ namespace {
     ssize_t offset;
     int nelem;
     int chunk;
+    int minChunkSize;
 
 #if defined(ENABLE_NPKIT)
     int npKitCtxIdx = bid;
@@ -58,7 +59,7 @@ namespace {
           ncclShmem.comm.npKitEventCollectContexts + npKitCtxIdx);
     }
 #endif
-
+    minChunkSize = nthreads*(Proto::calcBytePerGrain()/sizeof(T));
     Primitives<T, RedOp, FanSymmetric<1>, 0, Proto, 0> prims
       (tid, nthreads, &ring->prev, &ring->next, work->sendbuff, work->recvbuff, work->redOpArg, 0, work->connIndex, work->connIndex);
 
@@ -72,7 +73,7 @@ namespace {
       ssize_t remCount = channelCount - elemOffset;
       ssize_t chunkOffset;
 
-      if (remCount < loopCount) chunkCount = alignUp(divUp(remCount, nranks), 16/sizeof(T));
+      if (remCount < loopCount) chunkCount = alignUp(divUp(remCount, nranks*minChunkSize)*minChunkSize, 16/sizeof(T));
 
       auto modRanks = [&]__device__(int r)->int {
         return r - (r >= nranks ? nranks : 0);

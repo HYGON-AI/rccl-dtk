@@ -357,12 +357,12 @@ __device__ __forceinline__ void loadWorkBatchToShmem(
       // memcpy(dst, src, n);
       char* dst = ncclShmem.workStorage;
       dst += (workCursor + dstWork)*workSize + packInWork*16;
-      if (ncclShmem.args.workStorageType == ncclDevWorkStorageTypeArgs) {
+      if (args->workStorageType == ncclDevWorkStorageTypeArgs) {
         char* src = (char*)args + (batch.offsetBase + srcWork*workSize + packInWork*16);
         tmp = *(ulong2*)src; // becomes ld.param.v2.u64
       } 
-      if (ncclShmem.args.workStorageType != ncclDevWorkStorageTypeArgs) {
-        char* src = (char*)ncclShmem.args.workBuf + ((batch.offsetBase + srcWork*workSize + packInWork*16) & ncclShmem.args.workMask);
+      if (args->workStorageType != ncclDevWorkStorageTypeArgs) {
+        char* src = (char*)args->workBuf + ((batch.offsetBase + srcWork*workSize + packInWork*16) & args->workMask);
         tmp = *(ulong2*)src; // becomes ld.v2.u64
       }
       *(ulong2*)dst = tmp;
@@ -417,7 +417,7 @@ struct RunWorkBatch {
           work->redOpArg = RedOpArg<RedOp>::loadArg(reinterpret_cast<void*>(work->redOpArg));
         }
       }
-      __synclds();
+      __syncthreads();
     }
 
     #pragma unroll 1
@@ -425,7 +425,7 @@ struct RunWorkBatch {
       struct ncclDevWorkColl* work = (struct ncclDevWorkColl*)(ncclShmem.workStorage + w*ncclShmem.workSize);
       if (w != 0) {
         struct ncclDevWorkColl* workPrev = (struct ncclDevWorkColl*)(ncclShmem.workStorage + (w-1)*ncclShmem.workSize);
-        if (work->nWarps != workPrev->nWarps) __synclds();
+        if (work->nWarps != workPrev->nWarps) __syncthreads();
       }
       int subtn = work->nWarps*WARP_SIZE;
       if (tid < subtn) RunWorkColl<Fn, T, RedOp, Algo, Proto, COLL_UNROLL>().run(tid, subtn, work);
@@ -440,12 +440,6 @@ __device__ __forceinline__ void ncclKernelMain(struct ncclDevKernelArgs const* a
   int x = tid;
   int total = 0, y;
   int num = MAXCHANNELS/64 > 0 ? MAXCHANNELS/64 : 1;
-
-  // Copy kernel args to shmem and then only read those. Otherwise the compiler
-  // will end up putting the args into thread local stack which is very wasteful.
-  if (tid < sizeof(ncclDevKernelArgs)/sizeof(uint32_t)) {
-    ((uint32_t*)&ncclShmem.args)[tid] = ((uint32_t*)args)[tid];
-  }
 
   // To map blockId to channelId, we need the n'th set bit of channelMask which
   // is the inverse of counting the number of set bits among the the first n.
@@ -490,13 +484,13 @@ __device__ __forceinline__ void ncclKernelMain(struct ncclDevKernelArgs const* a
   default:
     break;
   }
-  __synclds(); // publish ncclShmem.{args, channelId}
+  __syncthreads(); // publish ncclShmem.{args, channelId}
 
   // Use first 2 warps to load comm and channel, and reamaining load work batch.
   switch (tid/WARP_SIZE) {
   case 0:
     { void* dst = &ncclShmem.comm;
-      void* src = ncclShmem.args.comm;
+      void* src = args->comm;
       int bytes = sizeof(ncclDevComm);
       static_assert(sizeof(ncclDevComm) <= 16*WARP_SIZE, "ncclDevComm cannot be loaded by a single warp in one insn.");
       copyToShmem16(tid, dst, src, bytes);
@@ -504,7 +498,7 @@ __device__ __forceinline__ void ncclKernelMain(struct ncclDevKernelArgs const* a
   case 1:
     { // Get address of channel without incurring indirect load from ncclDevComm::channels
       void* dst = &ncclShmem.channel;
-      void* src = &((ncclDevCommAndChannels*)ncclShmem.args.comm)->channels[ncclShmem.channelId];
+      void* src = &((ncclDevCommAndChannels*)args->comm)->channels[ncclShmem.channelId];
       int bytes = sizeof(ncclDevChannel);
       static_assert(sizeof(ncclDevChannel) <= 16*WARP_SIZE, "ncclDevChannel cannot be loaded by a single warp in one insn.");
       copyToShmem16(tid-WARP_SIZE, dst, src, bytes);
@@ -521,7 +515,7 @@ __device__ __forceinline__ void ncclKernelMain(struct ncclDevKernelArgs const* a
     ncclShmem.collTraceTail = args->comm->collTraceTail + ncclShmem.channelId;
   }
 #endif
-  __synclds(); // publish shmem
+  __syncthreads(); // publish shmem
 #ifdef ENABLE_PROFILING
   if (tid == 0) {
     ncclShmem.prof.count = 0;
@@ -531,7 +525,7 @@ __device__ __forceinline__ void ncclKernelMain(struct ncclDevKernelArgs const* a
   if (tid == 0) __insert_timestamp(__LINE__);
   if (COLLTRACE && tid%WARP_SIZE == 0) traceKernelLaunch(ncclCollTraceKernelLaunchType);
 
-  if (tid == 0 && ncclShmem.args.workStorageType == ncclDevWorkStorageTypeFifo) {
+  if (tid == 0 && args->workStorageType == ncclDevWorkStorageTypeFifo) {
     // ncclShmem.workConsumed written by loadWorkBatchToShmem before __syncthreads()
     ncclShmem.comm.workConsumed[ncclShmem.channelId] = ncclShmem.workConsumed;
   }
@@ -557,7 +551,7 @@ __device__ __forceinline__ void ncclKernelMain(struct ncclDevKernelArgs const* a
 
     if (ncclShmem.nextBatchIx == -1) break;
     int batchIx = ncclShmem.nextBatchIx;
-    __synclds();
+    __syncthreads();
     switch (tid/WARP_SIZE) {
       case 1:
         if (tid < WARP_SIZE + NCCL_MAX_GROUPS)
@@ -567,13 +561,13 @@ __device__ __forceinline__ void ncclKernelMain(struct ncclDevKernelArgs const* a
         break;
     }
     loadWorkBatchToShmem(tid%WARP_SIZE, tn, args, batchIx);
-    __synclds();
+    __syncthreads();
 
     // Check whether the last operation was aborted and make sure all threads exit
     bool aborted = false;
     if (tid == 0) aborted = *ncclShmem.comm.abortFlag;
     aborted = __any(aborted); // publish ncclShmem.work
-    if (tid == 0 && ncclShmem.args.workStorageType == ncclDevWorkStorageTypeFifo) {
+    if (tid == 0 && args->workStorageType == ncclDevWorkStorageTypeFifo) {
       // ncclShmem.workConsumed written by loadWorkBatchToShmem before barrier_red_or()
       ncclShmem.comm.workConsumed[ncclShmem.channelId] = ncclShmem.workConsumed;
     }
@@ -585,7 +579,7 @@ __device__ __forceinline__ void ncclKernelMain(struct ncclDevKernelArgs const* a
 
 #ifdef ENABLE_PROFILING
   if (ncclShmem.comm.devProf->seq < PROFILE_NUM_LAUNCHES) {
-    __synclds();
+    __syncthreads();
     copyToShmem16(tid, ncclShmem.comm.devProf+MAXCHANNELS*ncclShmem.prof.seq+blockIdx.x, &ncclShmem.prof, sizeof(struct ncclProf));
     if (tid == 0) ncclShmem.comm.devProf[blockIdx.x].seq++;
   }
