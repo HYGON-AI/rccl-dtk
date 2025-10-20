@@ -17,7 +17,7 @@
 #define NCCL_SIMPLE_ALIGNMENT (WARP_SIZE * 8LL * 16LL)
 #define NCCL_BYTES_ALIGNMENT 16
 #define _32KB  (1 << 15)   /*  32KiB */
-#define _1MB   (1 << 20)   /*   1MiB */
+#define _2MB   (1 << 21)   /*   2MiB */
 
 ncclResult_t ncclInitKernelsForDevice(int cudaArch, size_t* maxStackSize);
 ncclResult_t ncclEnqueueCheck(struct ncclInfo* info);
