@@ -143,6 +143,8 @@ if(CMAKE_SYSTEM_NAME MATCHES "QNX")
   target_link_libraries(gtest PUBLIC regex)
 endif()
 target_link_libraries(gtest_main PUBLIC gtest)
+target_compile_options(gtest_main PRIVATE -Wno-return-type)
+target_compile_options(gtest PRIVATE -Wno-return-type)
 
 ########################################################################
 #
