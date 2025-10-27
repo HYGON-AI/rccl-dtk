@@ -944,7 +944,7 @@ ncclResult_t ncclTopoComputeP2pChannels(struct ncclComm* comm) {
   if (comm->topo->nodes[GPU].count == comm->topo->nRanks && IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx94")) comm->p2pnChannelsPerPeer *= 2;
   comm->p2pnChannels = std::min(pow2Up(comm->p2pnChannels), 4*CHANNEL_LIMIT);
   // p2pnChannelsPerPeer cannot be greater than MAXCHANNELS
-  comm->p2pnChannelsPerPeer = std::min(comm->p2pnChannelsPerPeer, MAXCHANNELS);
+  comm->p2pnChannelsPerPeer = std::min(comm->p2pnChannelsPerPeer, comm->p2pnChannels);
   comm->oriP2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
   comm->autoPerPeerOn = IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") && ncclParamNChannelsPerPeer() == -2 && ncclParamP2pAutoPerPeerTuning() == 1;
 
