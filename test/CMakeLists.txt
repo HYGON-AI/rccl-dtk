@@ -6,27 +6,27 @@ cmake_minimum_required(VERSION 2.8.12)
 if(BUILD_TESTS)
 
   option(OPENMP_TESTS_ENABLED "Enable OpenMP for unit tests" OFF)
-  
+
   message("Building rccl unit tests (Installed in /test/rccl-UnitTests)")
   if (GTEST_PATH)
     set(GTEST_ROOT ${GTEST_PATH})
+    find_package(GTest 1.11)
+  else()
+    # 单独给 googletest 一个构建目录，并传递编译器
+    set(GTEST_BINARY_DIR ${CMAKE_BINARY_DIR}/googletest-build)
+    set(GTEST_SOURCE_DIR ${PROJECT_SOURCE_DIR}/googletest)
+
+    add_subdirectory(${GTEST_SOURCE_DIR} ${GTEST_BINARY_DIR} EXCLUDE_FROM_ALL)
+
+    enable_testing()
+    include(GoogleTest)
   endif()
   if (BUILD_TESTS_ONLY)
     add_compile_options(-std=c++14)
-    # find_package(GTest 1.11)
     find_package(hip REQUIRED)
     find_package(ROCM REQUIRED)
     include(ROCMInstallTargets)
   endif()
-
-  # 单独给 googletest 一个构建目录，并传递编译器
-  set(GTEST_BINARY_DIR ${CMAKE_BINARY_DIR}/googletest-build)
-  set(GTEST_SOURCE_DIR ${PROJECT_SOURCE_DIR}/googletest)
-
-  add_subdirectory(${GTEST_SOURCE_DIR} ${GTEST_BINARY_DIR} EXCLUDE_FROM_ALL)
-
-  enable_testing()
-  include(GoogleTest)
 
   find_package(hsa-runtime64 PATHS /opt/rocm )
   if(${hsa-runtime64_FOUND})
@@ -87,8 +87,8 @@ if(BUILD_TESTS)
 
   ## Set rccl-UnitTests include directories
   target_include_directories(rccl-UnitTests PRIVATE ${ROCM_PATH} ${GTEST_INCLUDE_DIRS})
+  target_compile_options(rccl-UnitTests PRIVATE -Wno-return-type)
   if (BUILD_TESTS_ONLY)
-    target_compile_options(rccl-UnitTests PRIVATE -Wno-return-type)
     target_include_directories(rccl-UnitTests PRIVATE ${PROJECT_BINARY_DIR}/../../build/include)        # for generated rccl.h header
     target_include_directories(rccl-UnitTests PRIVATE ${PROJECT_BINARY_DIR}/../../build/hipify/src/include) # for rccl_bfloat16.h
   else()
