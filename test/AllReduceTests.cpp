@@ -268,6 +268,7 @@ namespace RcclUnitTesting
           }
           testBed.DeallocateMem();
         }
+        scalarsPerRank.FreeCpuMem();
       }
       testBed.DestroyComms();
     }
