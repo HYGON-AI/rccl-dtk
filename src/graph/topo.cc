@@ -25,7 +25,7 @@
 const char* topoNodeTypeStr[] = { "GPU", "PCI", "NVS", "CPU", "NIC", "NET" };
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
 const char* topoLinkTypeStr[] = { "LOC", "XGMI", "",    "PCI",    "",    "",    "", "SYS", "NET" };
-const char* topoPathTypeStr[] = { "LOC", "XGMI", "NVB", "PIX", "PXB", "PXN", "PHB", "SYS", "DIS" };
+const char* topoPathTypeStr[] = { "LOC", "XGMI", "NVB", "PIX", "PXB", "PXN", "PHB", "SYS", "NET","DIS" };
 #else
 const char* topoLinkTypeStr[] = { "LOC", "NVL", "",    "PCI",    "",    "",    "", "SYS", "NET" };
 const char* topoPathTypeStr[] = { "LOC", "NVL", "NVB", "PIX", "PXB", "PXN", "PHB", "SYS", "NET", "DIS" };

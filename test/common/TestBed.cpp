@@ -525,7 +525,10 @@ namespace RcclUnitTesting
         ERROR("Child process %d exited with code %d\n", childId, returnVal);
       }
     }
-
+    for (int childId = 0; childId < this->numActiveChildren; ++childId)
+    {
+      delete childList[childId];
+    }
     childList.clear();
 
     // Reset bookkeeping
