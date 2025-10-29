@@ -3,10 +3,35 @@
  *
  * See LICENSE.txt for license information
  ************************************************************************/
-#include "TestBed.hpp"
-
-namespace RcclUnitTesting
-{
+ #include "TestBed.hpp"
+ #include <dlfcn.h>
+ 
+ namespace RcclUnitTesting
+ {
+  /**
+   * Detect InfiniBand hardware using libibverbs API.
+   * @return true if InfiniBand devices > 0, false otherwise
+  */
+  static bool HasInfiniBandSupport()
+  {
+    void* ibvhandle = dlopen("libibverbs.so.1", RTLD_NOW | RTLD_LOCAL);
+    if (!ibvhandle) ibvhandle = dlopen("libibverbs.so", RTLD_NOW | RTLD_LOCAL);
+    if (!ibvhandle) return false;
+    typedef struct ibv_device** (*get_device_list_func)(int*);
+    typedef void (*free_device_list_func)(struct ibv_device**);
+    auto get_devices = (get_device_list_func)dlsym(ibvhandle, "ibv_get_device_list");
+    auto free_devices = (free_device_list_func)dlsym(ibvhandle, "ibv_free_device_list");
+    if (!get_devices || !free_devices) {
+      dlclose(ibvhandle);
+      return false;
+    }
+    int count = 0;
+    struct ibv_device** devices = get_devices(&count);
+    if (devices) free_devices(devices);
+    dlclose(ibvhandle);
+    return (count > 0);
+  }
+ 
   TEST(SendRecv, SinglePairs)
   {
     TestBed testBed;
@@ -105,7 +130,8 @@ namespace RcclUnitTesting
 
   TEST(SendRecv, UserBufferRegister)
   {
-    setenv("RCCL_ENABLE_INTRANET", "1", 1);
+    bool enableIntranet = HasInfiniBandSupport();
+    if (enableIntranet) setenv("RCCL_ENABLE_INTRANET", "1", 1);
     TestBed testBed;
 
     // Configuration
