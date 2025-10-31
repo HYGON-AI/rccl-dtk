@@ -35,7 +35,7 @@ option(TIMETRACE                               "Enable time-trace during compila
 option(TRACE                                   "Enable additional tracing"                     OFF)
 option(SUPPORT_XHCL_TOPO                       "Support Detect Hyswitch"                       ON)
 option(SUPPORT_PCIE_CHANNEL                    "Support PCIE CHANNEL"                          ON)
-
+option(SUPPORT_PLUGINS_SHCA                    "Support PLUGINS SHCA"                          OFF)
 # Default GPU architectures to build
 #==================================================================================================
 set(DEFAULT_GPUS
@@ -51,6 +51,7 @@ include(CheckIncludeFileCXX)
 include(CheckSymbolExists)
 include(cmake/Dependencies.cmake) # rocm-cmake, rocm_local_targets
 include(cmake/CheckSymbolExistsNoWarn.cmake)
+include(ExternalProject)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -1043,6 +1044,10 @@ if(BUILD_TESTS)
       VERBATIM
     )
   endif()
+endif()
+
+if(SUPPORT_PLUGINS_SHCA)
+  add_subdirectory(tools/rccl-rdma-sharp-plugins-508-rccl-rdma-sharp-plugins-v8)
 endif()
 
 rocm_create_package(
