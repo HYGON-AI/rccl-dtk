@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <pwd.h>
+#include <dirent.h>
 
 const char* userHomeDir() {
   struct passwd *pwUser = getpwuid(getuid());
@@ -48,15 +49,43 @@ void setEnvFile(const char* fileName) {
   fclose(file);
 }
 
+// 提取的判断SHCA设备并配置文件的函数
+void configureShcaEnv(char* confFilePath, size_t confFilePathSize) {
+    DIR *dir;
+    struct dirent *ent;
+    int found_shca = 0;
+    
+    if ((dir = opendir("/sys/class/infiniband/")) != NULL) {
+        while ((ent = readdir(dir)) != NULL) {
+            if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+                continue;
+                
+            if (strstr(ent->d_name, "shca") != NULL) {
+                found_shca = 1;
+                break;
+            }
+        }
+        closedir(dir);
+    }
+
+    if (found_shca) {
+        char* rocmPath = getenv("ROCM_PATH");
+        if (rocmPath != NULL) {
+            snprintf(confFilePath, confFilePathSize, "%s%s", rocmPath, "/rccl/lib/rccl.conf");
+            setEnvFile(confFilePath);
+        }
+    }
+}
+
 void initEnv() {
-  char confFilePath[1024];
-  const char * userDir = userHomeDir();
-  if (userDir) {
-    sprintf(confFilePath, "%s/.rccl.conf", userDir);
-    setEnvFile(confFilePath);
-  }
-  sprintf(confFilePath, "/etc/rccl.conf");
-  setEnvFile(confFilePath);
+    char confFilePath[1024];
+    char* ncclConfFile = getenv("NCCL_CONF_FILE");
+    if (ncclConfFile) {
+        snprintf(confFilePath, sizeof(confFilePath),"%s", ncclConfFile);
+        setEnvFile(confFilePath);
+    } else {
+        configureShcaEnv(confFilePath, sizeof(confFilePath));
+    }
 }
 
 void ncclLoadParam(char const* env, int64_t deftVal, int64_t uninitialized, int64_t* cache) {
