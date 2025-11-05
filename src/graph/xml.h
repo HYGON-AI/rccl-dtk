@@ -127,15 +127,28 @@ private:
     envTypeInfo() = default;
     ~envTypeInfo() = default;
     inline std::string getPrefixFromNicName(const std::string& nicName);
-    int GetNicInfoFromSys(std::string& nicType);
+    inline void readLineFromFile(const std::string& filePath, std::string& lineContent);
+    inline int readInfinibandRate(const std::string& filePath);
+    int getNicInfoFromSys(std::string& nicNamePrefix, std::string& nicType, std::string& nicRateList);
+    void getHylinkInfo(int gpuCount, int& hyLinkType, int& hyLinkMaxGroupId, int& hyLinkGroupSize, std::string& hyLinkInfoStr);
+    void getBoardInfo(std::string& boardName, std::string& boardVendor, std::string& boardVersion, std::string& boardInfoStr); 
     void _init();
 
     std::string  gpuGcn;
     std::string  cpuArch;
     std::string  cpuVendor;
+    std::string  nicNamePrefix;
     std::string  nicType;
     uint32_t gpuCount{0};
     int nicCount{0};
+    std::string nicRateList;
+    int hyLinkType{0}; // Default to GPU type RSMI_XHCL_LINK_TYPE_GPU
+    int hyLinkMaxGroupId{0};
+    int hyLinkGroupSize{0};
+    std::string boardName;
+    std::string boardVendor;
+    std::string boardVersion;
+
     std::string  envTypeStr;
 
     static std::once_flag init_flag;

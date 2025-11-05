@@ -2,10 +2,10 @@
   <!--
     group：代表一个映射关系组；
       name：映射关系组标识，用于区分不同环境下的拓扑结构，命名规范：
-        x86_64架构下：GPU架构（如gfx936）_GPU数量（环境中实际的GPU数量）_CPU架构（如x86_64、arm64）_CPU厂商（如HygonGenuine）_网卡前缀（如mlx5、shca）_网卡数
-        非x86_64架构下：GPU架构（如gfx936）_GPU数量（环境中实际的GPU数量）_CPU架构（如x86_64、arm64）_网卡前缀（如mlx5、shca）_网卡数
+        x86_64架构下：GPU架构（如gfx936）_GPU数量（环境中实际的GPU数量）_CPU架构（如x86_64、arm64）_CPU厂商（如HygonGenuine）_网卡前缀（如mlx5、shca）_网卡数_网卡类型_网卡速率列表_hylink类型_hylink分组关系_主板型号_主板厂商_主板版本
+        非x86_64架构下：GPU架构（如gfx936）_GPU数量（环境中实际的GPU数量）_CPU架构（如x86_64、arm64）_网卡前缀（如mlx5、shca）_网卡数_网卡类型_网卡速率列表_hylink类型_hylink分组关系_主板型号_主板厂商_主板版本
   -->
-  <group name="gfx936_8_x86_64_HygonGenuine_mlx5_10">
+  <group name="gfx936_8_x86_64_HygonGenuine_mlx5_10_InfiniBand_200-10-200-200-200-200-200-200-200-200_1_8_1_62DC24X_U8_Nettrix_24003904">
       <!--
         cpu：映射关系中的一个numa节点；
           numaid：cpu节点编号，用于指定numa
@@ -64,7 +64,7 @@
       </pci>
     </cpu>
   </group>
-  <group name="gfx936_8_x86_64_GenuineIntel_mlx5_10">
+  <group name="gfx936_8_x86_64_GenuineIntel_mlx5_10_Ethernet_200-200-200-200-200-200-200-40-200-200_1_8_1_60EA32X_N/A_24003524">
     <cpu numaid="0">
       <pci>
         <!--
@@ -107,7 +107,7 @@
     </cpu>
   </group>
   <!--508 shca网卡-->
-  <group name="gfx936_8_x86_64_HygonGenuine_shca_4">
+  <group name="gfx936_8_x86_64_HygonGenuine_shca_4_InfiniBand_400-400-400-400_1_8_1_Board_SK_25002819">
     <cpu numaid="0">
       <pci>
         <gpu dev="0"/>
@@ -138,7 +138,7 @@
     </cpu>
   </group>
   <!--508 mlx5网卡-->
-  <group name="gfx936_8_x86_64_HygonGenuine_mlx5_4">
+  <group name="gfx936_8_x86_64_HygonGenuine_mlx5_4_InfiniBand_400-400-400-400_1_8_1_62DD24B_Sugon_24004374">
     <cpu numaid="0">
       <pci>
         <gpu dev="0"/>
