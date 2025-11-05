@@ -20,6 +20,7 @@
 #include "archinfo.h"
 #include "comm.h"
 #include "param.h"
+#include <fstream>
 #if defined(__x86_64__)
 #include <cpuid.h>
 #endif
@@ -1194,6 +1195,12 @@ ncclResult_t ncclTopoGetXmlFromMappingFile(struct ncclComm* comm, struct ncclXml
   static std::once_flag init_flag;
   std::call_once(init_flag,[&comm](){ NCCLCHECK(collectNodesBusIds(comm)); });
 
+  // Make sure we have at least one IB NIC
+  if (g_busIdSet.nicBusId.empty()) {
+    WARN("No IB NIC found, the generation of the basic topology has been terminated.");
+    return ncclSuccess;
+  }
+
   //Collect environmental information
   std::string envTypeInfoStr = envTypeInfo::getEnvTypeInfoStr();
   if (envTypeInfoStr.empty()) {
@@ -1234,7 +1241,7 @@ ncclResult_t ncclTopoGetXmlFromMappingFile(struct ncclComm* comm, struct ncclXml
  * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
  */
 ncclResult_t ncclxmlRemoveAllNodeByName(struct ncclXml* xml,const char* nodeName) {
-  if ( !xml || !nodeName) {
+  if (!xml || !nodeName) {
     return ncclSuccess;
   }
 
@@ -1242,7 +1249,7 @@ ncclResult_t ncclxmlRemoveAllNodeByName(struct ncclXml* xml,const char* nodeName
   NCCLCHECK(xmlFindTag(xml,nodeName,&node));
   while(node) {
     struct ncclXmlNode* parentNode = node->parent;
-    if(parentNode) {
+    if (parentNode) {
       for(int i = 0; i < node->nSubs; i++) {
         if (parentNode->nSubs == MAX_SUBS) {
             WARN("Error : XML parser is limited to %d subnodes", MAX_SUBS);
@@ -1309,7 +1316,7 @@ ncclResult_t ncclTopoXmlGraphLoadMappingGroup(FILE* file, struct ncclXml* xml, s
   thread_local bool isGotGroup = false;
   
   // 始终只解析一个组
-  if(isGotGroup) {
+  if (isGotGroup) {
     NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
     return ncclSuccess;
   }
@@ -1320,7 +1327,7 @@ ncclResult_t ncclTopoXmlGraphLoadMappingGroup(FILE* file, struct ncclXml* xml, s
       xmlMappingGroupName = envTypeInfo::getEnvTypeInfoStr();
     }
 
-    if(!isTopoMappingDefaultFile || containsKeyWord(name, xmlMappingGroupName)) {
+    if (!isTopoMappingDefaultFile || containsKeyWord(name, xmlMappingGroupName)) {
       INFO(NCCL_GRAPH, "parseing topology mapping group: %s", name);
       struct xmlHandler handlers[] = { { "cpu", ncclTopoXmlGraphLoadMappingCpu } };
       NCCLCHECK(xmlLoadSub(file, xml, head, handlers, 1));
@@ -1364,8 +1371,8 @@ ncclResult_t ncclTopoXmlGraphLoadMappingCpu(FILE* file, struct ncclXml* xml, str
 ncclResult_t ncclTopoXmlGraphLoadMappingPci(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head) {
   thread_local int pcieSwitchCount = 0;
   //set busid for pcieSwtich
-  if(head->parent && strcmp(head->parent->name,"cpu") == 0) {
-    if(pcieSwitchCount >= g_busIdSet.pcieSwitchBusId.size()) {
+  if (head->parent && strcmp(head->parent->name,"cpu") == 0) {
+    if (pcieSwitchCount >= g_busIdSet.pcieSwitchBusId.size()) {
       WARN("Error : The number of PCIe Switch labels [%d] exceeds the number of collected PCIe Switch busids [%lu], ignore the excess PCIe Switch labels."
         ,pcieSwitchCount+1,g_busIdSet.pcieSwitchBusId.size());
       NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
@@ -1419,11 +1426,11 @@ ncclResult_t ncclTopoXmlGraphLoadMappingGpu(FILE* file, struct ncclXml* xml, str
   // set busid for pcie(middle)、pcie(inner)
   int dev;
   NCCLCHECK(xmlGetAttrIntDefault(gpuNode, "dev", &dev, -1));
-  if(-1 != dev) { 
+  if (-1 != dev) { 
     char gpuKey[MAX_STR_LEN] = {};
     snprintf(gpuKey, sizeof(gpuKey),"%s%d", MAPPING_GPU_KEY_PREFIX, dev);
     // only set two gpus busid
-    if(g_busIdSet.gpuBusId.size() >= 2 && g_busIdSet.gpuBusId[1].find(gpuKey) != g_busIdSet.gpuBusId[1].end() && g_busIdSet.gpuBusId[0].find(gpuKey) != g_busIdSet.gpuBusId[0].end()) {
+    if (g_busIdSet.gpuBusId.size() >= 2 && g_busIdSet.gpuBusId[1].find(gpuKey) != g_busIdSet.gpuBusId[1].end() && g_busIdSet.gpuBusId[0].find(gpuKey) != g_busIdSet.gpuBusId[0].end()) {
       NCCLCHECK(xmlSetAttr(innerPciNode, "busid", g_busIdSet.gpuBusId[0][gpuKey].c_str()));
       NCCLCHECK(xmlSetAttr(middlePciNode, "busid", g_busIdSet.gpuBusId[1][gpuKey].c_str()));
       // remove dev Attr
@@ -1466,7 +1473,7 @@ ncclResult_t ncclTopoXmlGraphLoadMappingNic(FILE* file, struct ncclXml* xml, str
   std::string nicNameStr;
   const char* nicName = NULL;
   NCCLCHECK(xmlGetAttr(head, "id", &nicName));
-  if(NULL != nicName && g_busIdSet.nicBusId.find(nicName) != g_busIdSet.nicBusId.end()) {
+  if (NULL != nicName && g_busIdSet.nicBusId.find(nicName) != g_busIdSet.nicBusId.end()) {
     nicNameStr = nicName;
     busId = g_busIdSet.nicBusId[nicName];
     // remove id Attr
@@ -1484,7 +1491,7 @@ ncclResult_t ncclTopoXmlGraphLoadMappingNic(FILE* file, struct ncclXml* xml, str
   struct ncclXmlNode* nicNode;
   struct ncclXmlNode* netNode;
   NCCLCHECK(xmlFindTagKv(xml, "pci", &innerPciNode, "busid", busId.c_str()));
-  if(NULL == innerPciNode) {
+  if (NULL == innerPciNode) {
     // fill topo nodes
       // before: pcie(top)->nic
       // after: pcie(top)->pcie(inner)->nic->net
@@ -1518,7 +1525,7 @@ ncclResult_t ncclTopoXmlGraphLoadMappingNic(FILE* file, struct ncclXml* xml, str
   } else {
     // find nic node
     NCCLCHECK(xmlGetSub(innerPciNode,"nic",&nicNode));
-    if(nicNode == NULL){
+    if (nicNode == NULL) {
       WARN("The PCI node with busid %s was found, but no NIC sub-node was found.",busId.c_str());
       NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
       NCCLCHECK(xmlRemoveNode(head));
@@ -1550,11 +1557,13 @@ ncclResult_t ncclTopoXmlGraphLoadMappingNic(FILE* file, struct ncclXml* xml, str
  * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
  */
 ncclResult_t ncclTopoMappingGetNetNode(struct ncclXml* xml, struct ncclXmlNode* parent, const char* netNameAttr ,struct ncclXmlNode** netNode) {
-  if(!xml || !parent || !netNameAttr || !netNode) return ncclSuccess;
+  if (!xml || !parent || !netNameAttr || !netNode) {
+    return ncclSuccess;
+  }
   
   // add net node if not exist
   NCCLCHECK(xmlGetSubKv(parent, "net", netNode, "name", netNameAttr));
-  if(*netNode == NULL) {
+  if (*netNode == NULL) {
     NCCLCHECK(XmlAddAndCopyNode(xml, parent, "net", netNode));
     (*netNode)->type = NODE_TYPE_SINGLE;
 
@@ -1572,11 +1581,11 @@ ncclResult_t ncclTopoMappingGetNetNode(struct ncclXml* xml, struct ncclXmlNode* 
  * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
  */
 ncclResult_t xmlCopyAttr(struct ncclXmlNode* destNode, struct ncclXmlNode* srcNode,const char* attrName) {
-  if(!destNode || !srcNode || !attrName ) return ncclSuccess;
+  if (!destNode || !srcNode || !attrName ) return ncclSuccess;
 
   const char* value = NULL;
   NCCLCHECK(xmlGetAttr(srcNode, attrName, &value));
-  if(value) {
+  if (value) {
     NCCLCHECK(xmlSetAttr(destNode, attrName, value));
   }
   return ncclSuccess;
@@ -1594,13 +1603,13 @@ ncclResult_t xmlCopyAttr(struct ncclXmlNode* destNode, struct ncclXmlNode* srcNo
  * 返回值：ncclSuccess表示成功，其他错误码表示解析/处理失败
  */
 ncclResult_t XmlAddAndCopyNode(struct ncclXml* xml, struct ncclXmlNode* parent, const char* subNodeName, struct ncclXmlNode** subNode, struct ncclXmlNode* srcNode, bool isCopy) {
-  if(!xml || !parent || !subNodeName || !subNode) {
+  if (!xml || !parent || !subNodeName || !subNode) {
     WARN("XML Topology mapping has wrong, creation and replication of nodes failed");
     return ncclInvalidUsage;
   }
   NCCLCHECK(xmlAddNode(xml, parent, subNodeName, subNode));
 
-  if(srcNode && isCopy) {
+  if (srcNode && isCopy) {
     (*subNode)->nAttrs = srcNode->nAttrs;
     for (int i=0; i<srcNode->nAttrs; i++) {
       memcpy((*subNode)->attrs[i].key, srcNode->attrs[i].key, sizeof(srcNode->attrs[i].key));
@@ -1701,7 +1710,7 @@ ncclResult_t ncclTopoGetSlotInfo(int slot, int& gpuId, std::vector<std::string>&
 ncclResult_t ncclTopoXmlGraphLoadMappingSlot(FILE* file, struct ncclXml* xml, struct ncclXmlNode* head) {
   int slotId = 0;
   NCCLCHECK(xmlGetAttrIntDefault(head, "id", &slotId, -1));
-  if(-1 == slotId) {
+  if (-1 == slotId) {
     WARN( "Cannot get slot id from xml file.");
     NCCLCHECK(xmlLoadSub(file, xml, head, NULL, 0));
     return ncclSuccess;
@@ -1713,18 +1722,18 @@ ncclResult_t ncclTopoXmlGraphLoadMappingSlot(FILE* file, struct ncclXml* xml, st
   NCCLCHECK(ncclTopoGetSlotInfo(slotId, gpuId, nicNameList, classId));
 
   // Distribute by type
-  if(SLOT_NODE_TYPE_GPU == classId) {
+  if (SLOT_NODE_TYPE_GPU == classId) {
     // gpu type
     NCCLCHECK(xmlSetAttrInt(head,"dev",gpuId));
     NCCLCHECK(xmlUnsetAttr(head,"id"));
     NCCLCHECK(ncclTopoXmlGraphLoadMappingGpu(file,xml,head));
-  } else if(SLOT_NODE_TYPE_NIC == classId) { 
+  } else if (SLOT_NODE_TYPE_NIC == classId) { 
     // nic type
     // multiple network cards may share the same slot number,need to be set up one by one
     for ( int i = 0; i < nicNameList.size(); i++) {
       //if not last one,then create new nic node and copy all attrs to simulate multiple NIC labels.
       struct ncclXmlNode* nicNode;
-      if(i != nicNameList.size()-1){
+      if (i != nicNameList.size()-1){
         NCCLCHECK(XmlAddAndCopyNode(xml, head->parent, "nic", &nicNode, head, true));
         nicNode->type = NODE_TYPE_SINGLE;
       } else {
@@ -1794,7 +1803,7 @@ ncclResult_t collectNodesBusIds(struct ncclComm* comm) {
 
     std::string busIdListStr;
     for (int vecterIndex = 0; vecterIndex < layerCount; vecterIndex++) {
-      if(g_busIdSet.gpuBusId[vecterIndex].find(gpuKey) != g_busIdSet.gpuBusId[vecterIndex].end()) {
+      if (g_busIdSet.gpuBusId[vecterIndex].find(gpuKey) != g_busIdSet.gpuBusId[vecterIndex].end()) {
         busIdListStr += " | " + g_busIdSet.gpuBusId[vecterIndex][gpuKey];
       }
     }
@@ -1847,10 +1856,36 @@ inline std::string envTypeInfo::getPrefixFromNicName(const std::string& nicName)
                                     : nicName.substr(0, pos);
 }
 
-// Get NIC type and quantity
-int envTypeInfo::GetNicInfoFromSys(std::string& nicType) { 
-  const char* path = "/sys/class/infiniband";
-  DIR* dir = opendir(path);
+inline void envTypeInfo::readLineFromFile(const std::string& filePath , std::string& lineContent) {
+    std::ifstream file(filePath);
+    lineContent.clear();
+    if (file.is_open()) {
+      std::getline(file, lineContent);
+      file.close();
+    }
+}
+
+inline int envTypeInfo::readInfinibandRate(const std::string& filePath) {
+    std::string line;  
+    readLineFromFile(filePath, line);
+    if (line.empty()) {
+        return 0;
+    }
+    
+    int rate;
+    if (strstr(line.c_str(), "Gb/sec")) {
+      const char* format = (line[0] >= '0' && line[0] <= '9') ? "%d" : "%*[^0-9]%d";
+      if (sscanf(line.c_str(), format, &rate) == 1) {
+        return rate;
+      }
+    }
+    return 0;
+}
+
+// Get NIC type, quantity and rate from /sys/class/infiniband
+int envTypeInfo::getNicInfoFromSys(std::string& nicNamePrefix, std::string& nicType, std::string& nicRateList) { 
+  std::string path = "/sys/class/infiniband";
+  DIR* dir = opendir(path.c_str());
   if (!dir) {
     return 0;
   }
@@ -1863,10 +1898,92 @@ int envTypeInfo::GetNicInfoFromSys(std::string& nicType) {
   }
   closedir(dir);
 
-  if(!devices.empty()) {
-    nicType = getPrefixFromNicName(devices[0]);
+  if (!devices.empty()) {
+    // sort device names
+    std::sort(devices.begin(), devices.end());
+
+    // Get NIC Name prefix
+    nicNamePrefix = getPrefixFromNicName(devices[0]);
+
+    // Get NIC type
+    readLineFromFile(path + "/" + devices[0] + "/ports/1/link_layer", nicType);
+
+    // Get NIC rate list
+    for(int i = 0; i < devices.size(); i++){
+      int rate = readInfinibandRate(path + "/" + devices[i] + "/ports/1/rate");
+      if (i == 0) {
+        nicRateList += std::to_string(rate);
+      } else {
+        nicRateList += "-" + std::to_string(rate);
+      }
+    }
   }
+
   return devices.size();
+}
+
+// Get Hylink type, max group id, group size from rocm-smi
+void envTypeInfo::getHylinkInfo(int gpuCount, int& hyLinkType, int& hyLinkMaxGroupId, int& hyLinkGroupSize, std::string& hyLinkInfoStr){
+  #ifdef RSMI_SUPPORT_XHCL_TOPO
+  if (gpuCount <= 0) {
+    return;
+  }
+  uint32_t linkNum;
+  uint32_t linkState;
+  for (int rocmDev = 0; rocmDev < gpuCount; rocmDev++) {
+    // linkNum may be 0 when no hylink
+    NCCLCHECK(rocm_smi_dev_xhcl_link_number_get(rocmDev, &linkNum));
+    if (linkNum <= 0) {
+      // no hylink
+      break;
+    }
+
+    // Used to identify the type of the opposite end node : 0-GPU 1-SWITCH 
+    // run only once when rocmDev == 0
+    if (rocmDev == 0) {
+      RSMI_XHCL_LINK_TYPE devType = RSMI_XHCL_LINK_TYPE_GPU;
+      NCCLCHECK(rocm_smi_dev_xhcl_link_remote_dev_type_get(rocmDev, 0, &devType));
+      hyLinkType = devType;
+    }
+
+    // get max group id
+    // linkState may be 0 when no hylink, otherwise is group id of link
+    NCCLCHECK(rocm_smi_dev_xhcl_link_state_get(rocmDev, 0, &linkState));
+    if (linkState <= 0) {
+      // no hylink
+      break;
+    } else if (hyLinkMaxGroupId < linkState) {
+      hyLinkMaxGroupId = linkState;
+    } 
+  }
+
+  // only when linkNum and hyLinkMaxGroupId are both greater than 0, return valid hyLinkInfoStr
+  if (linkNum > 0 && hyLinkMaxGroupId > 0) {
+    hyLinkGroupSize = linkNum / hyLinkMaxGroupId;
+    hyLinkInfoStr = std::to_string(hyLinkType) + "_" + std::to_string(hyLinkGroupSize) + "_" + std::to_string(hyLinkMaxGroupId);
+  }
+  #endif
+  return;
+}
+
+void envTypeInfo::getBoardInfo(std::string& boardName, std::string& boardVendor, std::string& boardVersion, std::string& boardInfoStr) {
+  //board name
+  std::string boardNamePath = "/sys/class/dmi/id/board_name";
+  readLineFromFile(boardNamePath, boardName);
+
+  //board vendor
+  std::string boardVendorPath = "/sys/class/dmi/id/board_vendor";
+  readLineFromFile(boardVendorPath, boardVendor);
+
+  //board version
+  std::string boardVersionPath = "/sys/class/dmi/id/board_version";
+  readLineFromFile(boardVersionPath, boardVersion);
+  
+  if (!boardName.empty() && !boardVendor.empty() && !boardVersion.empty()) {
+    boardInfoStr = boardName + "_" + boardVendor + "_" + boardVersion;
+  }
+
+  return;
 }
 
 // Collect environmental information, including GPU architecture, GPU quantity, CPU architecture, NIC type and NIC quantity
@@ -1904,16 +2021,34 @@ void envTypeInfo::_init() {
     cpuVendor = std::string(cpuid0.vendor, 12); 
   #endif
 
-  //nic type and Count
-  nicCount = GetNicInfoFromSys(nicType);
+  //NIC type, quantity and rate from /sys/class/infiniband
+  nicCount = getNicInfoFromSys(nicNamePrefix, nicType, nicRateList);
 
   if (!cpuVendor.empty()) {
     envTypeStr = gpuGcn + "_" + std::to_string(gpuCount) + "_" +
                 cpuArch + "_" + cpuVendor + "_" + 
-                nicType + "_" + std::to_string(nicCount);
+                nicNamePrefix + "_" + std::to_string(nicCount) + "_" + nicType + "_" + nicRateList;
   } else {
     envTypeStr = gpuGcn + "_" + std::to_string(gpuCount) + "_" +
-                cpuArch + "_" + nicType + "_" + std::to_string(nicCount);
+                cpuArch + "_" + nicNamePrefix + "_" + std::to_string(nicCount) + "_" + nicType + "_" + nicRateList;
+  }
+  
+  //hylink type, max group id, group size
+  std::string linkInfo; 
+  getHylinkInfo(gpuCount, hyLinkType, hyLinkMaxGroupId, hyLinkGroupSize, linkInfo);
+
+  // add hylink info if exists
+  if (!linkInfo.empty()) {
+    envTypeStr += "_" + linkInfo;
+  }
+
+  // board name, vendor, version
+  std::string boardInfo;
+  getBoardInfo(boardName, boardVendor, boardVersion, boardInfo);
+
+  // add board info if exists
+  if (!boardInfo.empty()) {
+    envTypeStr += "_" + boardInfo;
   }
 
   return;
