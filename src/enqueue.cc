@@ -2259,15 +2259,30 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
     planner->nTasksP2p += 1;
     if (comm->autoPerPeerOn) {
       p2p->parentP2pType = currentParentP2p();
-      if (p2p->parentP2pType == P2pAllToAll || p2p->parentP2pType == P2pGather || p2p->parentP2pType == P2pScatter) {
-        comm->p2pnChannelsPerPeer = getP2pPerPeerChannels(comm, info, p2p->parentP2pType);
+      auto updateChannels = [&](int channels) {
+        comm->p2pnChannelsPerPeer = std::min(channels, comm->p2pnChannels);
         comm->devComm->p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
-      } else if (p2p->parentP2pType == P2pInvalid && comm->nNodes > 1) {
-        comm->p2pnChannelsPerPeer = 16;
-        comm->devComm->p2pnChannelsPerPeer = 16;
-      } else if (comm->p2pnChannelsPerPeer != comm->oriP2pnChannelsPerPeer) {
-        comm->p2pnChannelsPerPeer = comm->oriP2pnChannelsPerPeer;
-        comm->devComm->p2pnChannelsPerPeer = comm->oriP2pnChannelsPerPeer;
+      };
+      auto maybeRestore = [&]() {
+        if (comm->p2pnChannelsPerPeer != comm->oriP2pnChannelsPerPeer) {
+          updateChannels(comm->oriP2pnChannelsPerPeer);
+        }
+      };
+      switch (p2p->parentP2pType) {
+        case P2pAllToAll:
+        case P2pGather:
+        case P2pScatter:
+          updateChannels(getP2pPerPeerChannels(comm, info, p2p->parentP2pType));
+          break; 
+        case P2pAllToAllv:
+          comm->nNodes == 1 ? updateChannels(4) : maybeRestore();
+          break;
+        case P2pInvalid:
+          comm->nNodes > 1 ? updateChannels(16) : maybeRestore();
+          break;
+        default:
+          maybeRestore();
+          break;
       }
     }
     // Mark channels that need pre-connect
