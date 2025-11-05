@@ -14,6 +14,7 @@
 #include "transport.h"
 #include "device.h"
 #include "xml.h"
+#include "rome_models.h"
 
 // Pre-compute GPU->NIC, GPU->GPU and NIC->GPU paths
 
@@ -946,7 +947,7 @@ ncclResult_t ncclTopoComputeP2pChannels(struct ncclComm* comm) {
   // p2pnChannelsPerPeer cannot be greater than MAXCHANNELS
   comm->p2pnChannelsPerPeer = std::min(comm->p2pnChannelsPerPeer, comm->p2pnChannels);
   comm->oriP2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
-  comm->autoPerPeerOn = IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") && ncclParamNChannelsPerPeer() == -2 && ncclParamP2pAutoPerPeerTuning() == 1;
+  comm->autoPerPeerOn = IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") && ncclParamNChannelsPerPeer() == -2 && ncclParamP2pAutoPerPeerTuning() == 1 && isHSW(comm->topo);
 
   // Init channels that weren't used so far
   for (int c=comm->nChannels; c<std::max(comm->nChannels, comm->p2pnChannels); c++) NCCLCHECK(initChannel(comm, c));
