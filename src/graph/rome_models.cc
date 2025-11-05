@@ -2507,6 +2507,10 @@ static struct rcclRomeModel hygonBWSingleNodeModel = {
   .ringBase = "0 1 3 2 4 6 5 7"
 };
 
+static struct rcclRomeModel hygonBWSingleNode4gpuModel = {
+  .ringBase = "0 1 2 3|0 1 3 2|0 2 3 1|0 3 2 1"
+};
+
 static struct rcclRomeModel hygonBWMultiNodes4NicModel = {
   .ringBase ="N0 0 7 5 6 4 3 1 2 N0|"
              "N1 3 4 6 5 7 0 2 1 N1|"
@@ -2581,9 +2585,46 @@ exit:
   return ncclSuccess;
 }
 
+bool isAllHylink(struct ncclTopoSystem* system){
+  int ngpus = system->nodes[GPU].count;
+  // Check for direct HYLink connections
+  for (int cudaDev1=0; cudaDev1<ngpus; cudaDev1++) {
+    struct ncclTopoNode *node = system->nodes[GPU].nodes+cudaDev1;
+    for (int cudaDev2=0; cudaDev2<ngpus; cudaDev2++) {
+      if (cudaDev1 == cudaDev2) continue;
+      struct ncclTopoLink* link = node->paths[GPU][cudaDev2].list[0];
+      struct ncclTopoNode* remNode = link->remNode;
+      if (node->paths[GPU][cudaDev2].count == 1 && remNode->type != NVS) {
+        if (link->type != LINK_NVL) return false;
+      } else {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool isHSW(struct ncclTopoSystem* system){
+  int ngpus = system->nodes[GPU].count;
+  // Check for direct HYSwitch connections
+  for (int cudaDev1=0; cudaDev1<ngpus; cudaDev1++) {
+    struct ncclTopoNode *node = system->nodes[GPU].nodes+cudaDev1;
+    for (int cudaDev2=0; cudaDev2<ngpus; cudaDev2++) {
+      if (cudaDev1 == cudaDev2) continue;
+      struct ncclTopoLink* link = node->paths[GPU][cudaDev2].list[0];
+      struct ncclTopoNode* remNode = link->remNode;
+      if (node->paths[GPU][cudaDev2].count == 2 && remNode->type == NVS) {
+        if (link->type != LINK_NVL) return false;
+      } else {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* graph) {
   ncclResult_t r;
-  constexpr int NGPUS = 8;
   const int ngpus = system->nodes[GPU].count;
   const int ncpus = system->nodes[CPU].count;
   const int nnets = system->nodes[NET].count;
@@ -2594,17 +2635,18 @@ ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
     system->tuning = 2;
   else
     return ncclSuccess;
-  if (ngpus != NGPUS)
-    return ncclSuccess;
-
-  if (system->nHosts == 1){
-    NCCLCHECK(parseGraph(hygonBWSingleNodeModel.ringBase, system, graph, NULL, NULL, false));
-  } else if (nnets == 4){
-     NCCLCHECK(parseGraph(hygonBWMultiNodes4NicModel.ringBase, system, graph, NULL, NULL, false));
-  } else if (nnets == 8){
-    NCCLCHECK(parseGraph(hygonBWMultiNodes8NicModel.ringBase, system, graph, NULL, NULL, false));
-  } else if (nnets == 9){
-    NCCLCHECK(parseGraph(hygonBWMultiNodes9NicModel.ringBase, system, graph, NULL, NULL, false));
+  if (ngpus == 8 && isHSW(system)){
+    if (system->nHosts == 1){
+      NCCLCHECK(parseGraph(hygonBWSingleNodeModel.ringBase, system, graph, NULL, NULL, false));
+    } else if (nnets == 4){
+      NCCLCHECK(parseGraph(hygonBWMultiNodes4NicModel.ringBase, system, graph, NULL, NULL, false));
+    } else if (nnets == 8){
+      NCCLCHECK(parseGraph(hygonBWMultiNodes8NicModel.ringBase, system, graph, NULL, NULL, false));
+    } else if (nnets == 9){
+      NCCLCHECK(parseGraph(hygonBWMultiNodes9NicModel.ringBase, system, graph, NULL, NULL, false));
+    }
+  } else if (ngpus ==4 && system->nHosts == 1 && isAllHylink(system)){
+    NCCLCHECK(parseGraph(hygonBWSingleNode4gpuModel.ringBase, system, graph, NULL, NULL, false));
   }
 
   return ncclSuccess;
