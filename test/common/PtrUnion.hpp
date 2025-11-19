@@ -94,6 +94,7 @@ namespace RcclUnitTesting
                     size_t         const  numElements,
                     PtrUnion       const& expected,
                     bool           const  verbose,
+                    unsigned       const  tolerance,
                     bool&                 isMatch);
 
     // Output to string (for debug)

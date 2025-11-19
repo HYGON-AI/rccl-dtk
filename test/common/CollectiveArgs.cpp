@@ -111,6 +111,42 @@ namespace RcclUnitTesting
     return prepFunc(*this);
   }
 
+/*
+ * if the floats always have similar exponents, than the integer difference is 
+ * actually proportional to the relative error. So a cheap way to compare 
+ * if two floats are relatively close is: abs(intBits(a) - intBits(b)) < tolerance. 
+ * The following formula calculates such a tolerance for a summation of n floats. 
+ * This formula was copyed from rccl-tests.
+*/ 
+  unsigned calcSumFloatTolerance(int totalRanks, ncclDataType_t dataType) 
+  {
+    float power, coef;
+    switch(dataType) 
+    {
+    case ncclFloat32:
+    case ncclFloat64:
+      power = .51f;
+      coef = 1.25f;
+      break;
+    case ncclFloat16:
+      power = .91f;
+      coef = .75f;
+      break;
+    case ncclBfloat16:
+      power = .91f;
+      coef = .66f;
+      break;
+    case ncclFp8E4M3:
+    case ncclFp8E5M2:
+      power = .91f;
+      coef = .66f;
+      break;
+    default: // integer types
+        return 0;
+    }
+    return 1 + unsigned(coef*std::pow(float(totalRanks), power));
+  }
+
   ErrCode CollectiveArgs::ValidateResults()
   {
     // Ignore non-root outputs for collectives with a root
@@ -120,11 +156,19 @@ namespace RcclUnitTesting
 
     CHECK_HIP(hipMemcpy(this->outputCpu.ptr, this->outputGpu.ptr, numOutputBytes, hipMemcpyDeviceToHost));
 
+    // set tolerance for avg reductions
+    unsigned tolerance = 0;
+    if(this->options.redOp == ncclAvg) 
+    {
+      tolerance = calcSumFloatTolerance(this->totalRanks,this->dataType);
+    }
+
     bool isMatch = true;
     CHECK_CALL(this->outputCpu.IsEqual(this->dataType,
                                        this->numOutputElements,
                                        this->expected,
                                        true,
+                                       tolerance,
                                        isMatch));
     if (!isMatch) ERROR("Mismatch for %s\n", this->GetDescription().c_str());
     return isMatch ? TEST_SUCCESS : TEST_FAIL;
