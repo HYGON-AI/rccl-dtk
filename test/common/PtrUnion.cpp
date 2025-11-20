@@ -312,10 +312,22 @@ namespace RcclUnitTesting
     return TEST_SUCCESS;
   }
 
+  // Helper function for fp8 e5m2 verification with tolerance
+  inline bool verifyncclFp8E5M2(uint8_t const& output, uint8_t const& expected, unsigned const& tolerance)
+  {
+    uint8_t delta = output < expected ? expected - output : output - expected;
+    if(delta > tolerance) 
+    {
+      return false;
+    }
+    return true;
+  }
+
   ErrCode PtrUnion::IsEqual(ncclDataType_t const  dataType,
                             size_t         const  numElements,
                             PtrUnion       const& expected,
                             bool           const  verbose,
+                            unsigned       const  tolerance,
                             bool&                 isMatch)
   {
     isMatch = true;
@@ -334,7 +346,7 @@ namespace RcclUnitTesting
       case ncclFloat16: isMatch = (fabs(__half2float(F2[idx]) - __half2float(expected.F2[idx])) < 9e-2); break;
       case ncclFloat32: isMatch = (fabs(F4[idx] - expected.F4[idx]) < 1e-5); break;
       case ncclFloat64: isMatch = (fabs(F8[idx] - expected.F8[idx]) < 1e-12); break;
-      case ncclFp8E5M2: isMatch = (fabs(float(B1[idx]) - float(expected.B1[idx])) < 9e-2); break;
+      case ncclFp8E5M2: isMatch = verifyncclFp8E5M2(B1[idx].data, expected.B1[idx].data, tolerance); break;
       case ncclBfloat16: isMatch = (fabs((float)B2[idx] - (float)expected.B2[idx]) < 9e-2); break;
       default:
         ERROR("Unsupported datatype\n");
@@ -368,7 +380,7 @@ namespace RcclUnitTesting
       case ncclFloat64:
         ERROR("Expected output: %lf.  Actual output: %lf at index %lu\n", expected.F8[idx], F8[idx], idx); break;
       case ncclFp8E5M2:
-        ERROR("Expected output: %f.  Actual output: %f at index %lu\n", (float)expected.B1[idx], (float)B1[idx], idx); break;
+        ERROR("Expected output: %f(%d).  Actual output: %f(%d) at index %lu tolerance %d\n", (float)expected.B1[idx], expected.B1[idx].data, (float)B1[idx], B1[idx].data, idx, tolerance); break;
       case ncclBfloat16:
         ERROR("Expected output: %f.  Actual output: %f at index %lu\n", (float)expected.B2[idx], (float)B2[idx], idx); break;
       default:
