@@ -188,6 +188,18 @@ typedef struct nccl_uct_context {
   nccl_uct_worker_t       *worker_list;
 } nccl_uct_context_t;
 
+typedef struct {
+    uct_pending_req_t uct;    /* UCX pending header (must be first) */
+
+    //params for uct_ep_get_zcopy
+    nccl_uct_comm_t* base_comm;
+    void* data;
+    int size;
+    nccl_uct_memh_t* uct_memh;
+    uct_completion_t* completion;
+    uct_iov_t iov;
+} nccl_pending_flush_req_t;
+
 #define UCXCHECK(statement, failure_action, message, ...) \
   do { \
     ucs_status_t _status = statement; \
