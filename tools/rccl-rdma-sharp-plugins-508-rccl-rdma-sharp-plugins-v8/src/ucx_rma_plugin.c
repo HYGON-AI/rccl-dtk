@@ -1059,8 +1059,12 @@ ncclResult_t nccl_ucx_rma_iflush(void* recv_comm, int n, void** data, int* sizes
   NCCLCHECK(ucx_rma_get_request(comm->super.reqs, &req_id));
   req = &comm->super.reqs[req_id];
 
+  // req->st = ucp_get_nb(comm->super.gpuFlush.flush_ep, &comm->super.gpuFlush.hostMem, 1,
+  //                  (uint64_t)data, mh->rkey, nccl_ucx_rma_gdr_flush_cb);
+
   req->st = ucp_get_nb(comm->super.gpuFlush.flush_ep, &comm->super.gpuFlush.hostMem, 1,
-                   (uint64_t)data, mh->rkey, nccl_ucx_rma_gdr_flush_cb);
+                   (uint64_t)data[last], mh->rkey, nccl_ucx_rma_gdr_flush_cb);   
+
   if (UCS_PTR_IS_ERR(req->st)) {
     WARN("ucx_flush: unable to read data (%s)", ucs_status_string(UCS_PTR_STATUS(req)));
     return ncclSystemError;

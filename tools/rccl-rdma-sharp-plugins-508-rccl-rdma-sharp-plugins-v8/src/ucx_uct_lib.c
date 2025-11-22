@@ -7,10 +7,13 @@
 #include "ucx_uct_lib.h"
 
 
+
 static pthread_mutex_t nccl_uct_lock = PTHREAD_MUTEX_INITIALIZER;
 
 nccl_uct_context_t context = {
-    .tl_name   = "rc_mlx5",
+    // .tl_name   = "rc_mlx5",
+
+    .tl_name   = "rc_verbs",
     .dev_count = -1
 };
 
@@ -198,11 +201,11 @@ found:
     uct_iface->min_get_zcopy = iface_attr.cap.get.min_zcopy;
   }
 
-  if (context.am_short_size > uct_iface->am_max_short) {
-    WARN("Failed RTR does not fit in face AM short (%dB > %dB)",
-         context.am_short_size, uct_iface->am_max_short);
-    goto fail;
-  }
+  // if (context.am_short_size > uct_iface->am_max_short) {
+  //   WARN("Failed RTR does not fit in face AM short (%dB > %dB)",
+  //        context.am_short_size, uct_iface->am_max_short);
+  //   goto fail;
+  // }
 
   if (uct_iface->rkey_packed_size > context.rkey_size) {
     WARN("Interface rkey_packed_size %d too big", uct_iface->rkey_packed_size);
@@ -744,6 +747,24 @@ int nccl_uct_flush_index(nccl_uct_comm_t *base, int *sizes, int n) {
   return last;
 }
 
+static ucs_status_t nccl_uct_flush_pending_cb(uct_pending_req_t* self)
+{
+    nccl_pending_flush_req_t* req = (nccl_pending_flush_req_t*)self;
+
+    ucs_status_t status = uct_ep_get_zcopy(
+        req->base_comm->gpu_flush.uct_ep->ep,
+        &req->iov, 1,
+        (uint64_t)req->data,
+        req->uct_memh->bundle.rkey,
+        req->completion);
+
+    if (status == UCS_INPROGRESS || status == UCS_OK) {
+      free(self);
+      return UCS_OK;
+    }
+    return status;
+}
+
 ncclResult_t nccl_uct_flush(nccl_uct_comm_t *base_comm, void *data, int size,
                             nccl_uct_memh_t *uct_memh,
                             uct_completion_t *completion, void **request) {
@@ -758,15 +779,44 @@ ncclResult_t nccl_uct_flush(nccl_uct_comm_t *base_comm, void *data, int size,
 
   assert(size >= iov.length);
 
-  status = uct_ep_get_zcopy(base_comm->gpu_flush.uct_ep->ep, &iov, 1,
-                            (uint64_t)data, uct_memh->bundle.rkey, completion);
-  if (status != UCS_INPROGRESS) {
-    *request = NULL;
-    if (status != UCS_OK) {
+  // status = uct_ep_get_zcopy(base_comm->gpu_flush.uct_ep->ep, &iov, 1,
+  //                           (uint64_t)data, uct_memh->bundle.rkey, completion);
+  
+  for(; ;){
+    status = uct_ep_get_zcopy(base_comm->gpu_flush.uct_ep->ep, &iov, 1,(uint64_t)data, uct_memh->bundle.rkey, completion);
+    if(status == UCS_INPROGRESS) break;
+    else if (status == UCS_ERR_NO_RESOURCE) //The resource is not available now.Try uct_ep_pending_add
+    {
+      nccl_pending_flush_req_t* req = malloc(sizeof(*req));
+      req->uct.func = nccl_uct_flush_pending_cb;
+      req->base_comm = base_comm;
+      req->data = data;
+      req->size = size;
+      req->uct_memh = uct_memh;
+      req->completion = completion;
+      req->iov = iov;
+      status  = uct_ep_pending_add(base_comm->gpu_flush.uct_ep->ep, &req->uct,1);
+      if (status == UCS_OK) break; 
+      else if (status == UCS_ERR_BUSY) { // The net resource is available now. Try to send it again.
+        free(req);
+        continue;
+      }
+      else return ncclInternalError;
+    }
+    else{
+      *request = NULL;
       WARN("Failed to flush local ep comm=%p status=%d", base_comm, status);
       return ncclInternalError;
     }
   }
+  
+  // if (status != UCS_INPROGRESS) {
+  //   *request = NULL;
+  //   if (status != UCS_OK) {
+  //     WARN("Failed to flush local ep comm=%p status=%d", base_comm, status);
+  //     return ncclInternalError;
+  //   }
+  // }
 
   return ncclSuccess;
 }
