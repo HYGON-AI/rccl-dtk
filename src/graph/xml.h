@@ -131,7 +131,6 @@ private:
     inline int readInfinibandRate(const std::string& filePath);
     int getNicInfoFromSys(std::string& nicNamePrefix, std::string& nicType, std::string& nicRateList);
     void getHylinkInfo(int gpuCount, int& hyLinkType, int& hyLinkMaxGroupId, int& hyLinkGroupSize, std::string& hyLinkInfoStr);
-    void getBoardInfo(std::string& boardName, std::string& boardVendor, std::string& boardVersion, std::string& boardInfoStr); 
     void _init();
 
     std::string  gpuGcn;
@@ -145,9 +144,6 @@ private:
     int hyLinkType{0}; // Default to GPU type RSMI_XHCL_LINK_TYPE_GPU
     int hyLinkMaxGroupId{0};
     int hyLinkGroupSize{0};
-    std::string boardName;
-    std::string boardVendor;
-    std::string boardVersion;
 
     std::string  envTypeStr;
 

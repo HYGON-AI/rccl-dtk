@@ -1966,26 +1966,6 @@ void envTypeInfo::getHylinkInfo(int gpuCount, int& hyLinkType, int& hyLinkMaxGro
   return;
 }
 
-void envTypeInfo::getBoardInfo(std::string& boardName, std::string& boardVendor, std::string& boardVersion, std::string& boardInfoStr) {
-  //board name
-  std::string boardNamePath = "/sys/class/dmi/id/board_name";
-  readLineFromFile(boardNamePath, boardName);
-
-  //board vendor
-  std::string boardVendorPath = "/sys/class/dmi/id/board_vendor";
-  readLineFromFile(boardVendorPath, boardVendor);
-
-  //board version
-  std::string boardVersionPath = "/sys/class/dmi/id/board_version";
-  readLineFromFile(boardVersionPath, boardVersion);
-  
-  if (!boardName.empty() && !boardVendor.empty() && !boardVersion.empty()) {
-    boardInfoStr = boardName + "_" + boardVendor + "_" + boardVersion;
-  }
-
-  return;
-}
-
 // Collect environmental information, including GPU architecture, GPU quantity, CPU architecture, NIC type and NIC quantity
 void envTypeInfo::_init() {
   // gpu gcn
@@ -2040,15 +2020,6 @@ void envTypeInfo::_init() {
   // add hylink info if exists
   if (!linkInfo.empty()) {
     envTypeStr += "_" + linkInfo;
-  }
-
-  // board name, vendor, version
-  std::string boardInfo;
-  getBoardInfo(boardName, boardVendor, boardVersion, boardInfo);
-
-  // add board info if exists
-  if (!boardInfo.empty()) {
-    envTypeStr += "_" + boardInfo;
   }
 
   return;
