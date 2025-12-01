@@ -819,11 +819,11 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     @param[in]  nChannels     nChannels configured by the user */
     ncclResult_t  duNcclAllreduce(const void* sendbuff, void* recvbuff, size_t count,
         ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, hipStream_t stream,
-        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        const char* proto , const char* algo , int nChannels );
 /*! @cond       include_hidden */
     ncclResult_t pduNcclAllreduce(const void* sendbuff, void* recvbuff, size_t count,
         ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, hipStream_t stream,
-        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        const char* proto , const char* algo , int nChannels );
 /*! @endcond */
 
 /*! @brief      All-Gather with user config
@@ -847,11 +847,11 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     @param[in]  nChannels     nChannels configured by the user */
     ncclResult_t  duNcclAllgather(const void* sendbuff, void* recvbuff, size_t sendcount,
         ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream,
-        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        const char* proto , const char* algo , int nChannels );
 /*! @cond       include_hidden */
     ncclResult_t pduNcclAllgather(const void* sendbuff, void* recvbuff, size_t sendcount,
         ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream,
-        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        const char* proto , const char* algo , int nChannels );
 /*! @endcond */
     
 
@@ -874,10 +874,10 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     @param[in]  algo          Algorithm configured by the user
     @param[in]  nChannels     nChannels configured by the user */
     ncclResult_t  duNcclBcast(void* buff, size_t count, ncclDataType_t datatype, int root,
-        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        ncclComm_t comm, hipStream_t stream, const char* proto , const char* algo , int nChannels );
 /*! @cond       include_hidden */
     ncclResult_t pduNcclBcast(void* buff, size_t count, ncclDataType_t datatype, int root,
-        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        ncclComm_t comm, hipStream_t stream, const char* proto , const char* algo , int nChannels );
 /*! @endcond */
     
 /*! @brief      Broadcast with user config
@@ -900,10 +900,10 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     @param[in]  algo          Algorithm configured by the user
     @param[in]  nChannels     nChannels configured by the user */
     ncclResult_t  duNcclBroadcast(const void* sendbuff, void* recvbuff, size_t count, ncclDataType_t datatype, int root,
-        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        ncclComm_t comm, hipStream_t stream, const char* proto , const char* algo , int nChannels );
 /*! @cond       include_hidden */
     ncclResult_t pduNcclBroadcast(const void* sendbuff, void* recvbuff, size_t count, ncclDataType_t datatype, int root,
-        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        ncclComm_t comm, hipStream_t stream, const char* proto , const char* algo , int nChannels );
 /*! @endcond */
 
 /*! @brief      Reduce-Scatter with user config
@@ -929,11 +929,11 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     @param[in]  nChannels     nChannels configured by the user */
     ncclResult_t  duNcclReduceScatter(const void* sendbuff, void* recvbuff,
         size_t recvcount, ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm,
-        hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        hipStream_t stream, const char* proto , const char* algo , int nChannels );
 /*! @cond       include_hidden */
     ncclResult_t pduNcclReduceScatter(const void* sendbuff, void* recvbuff,
         size_t recvcount, ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm,
-        hipStream_t stream, const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        hipStream_t stream, const char* proto , const char* algo , int nChannels );
 /*! @endcond */
 
 /*! @brief      Reduce with user config
@@ -960,11 +960,11 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     @param[in]  nChannels     nChannels configured by the user */
     ncclResult_t  duNcclReduce(const void* sendbuff, void* recvbuff, size_t count, ncclDataType_t datatype,
         ncclRedOp_t op, int root, ncclComm_t comm, hipStream_t stream,
-        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        const char* proto , const char* algo , int nChannels );
     /*! @cond       include_hidden */
     ncclResult_t pduNcclReduce(const void* sendbuff, void* recvbuff, size_t count, ncclDataType_t datatype,
         ncclRedOp_t op, int root, ncclComm_t comm, hipStream_t stream, 
-        const char* proto = nullptr, const char* algo = nullptr, int nChannels = 0);
+        const char* proto , const char* algo , int nChannels );
 /*! @endcond */
 
 /*! @brief      Send with user config
@@ -986,10 +986,10 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     @param[in]  proto         protocol configured by the user 
     @param[in]  nChannels     nChannels configured by the user */
     ncclResult_t  duNcclSend(const void* sendbuff, size_t count, ncclDataType_t datatype, int peer,
-        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+        ncclComm_t comm, hipStream_t stream, const char* proto , int nChannels );
 /*! @cond       include_hidden */
     ncclResult_t pduNcclSend(const void* sendbuff, size_t count, ncclDataType_t datatype, int peer,
-        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+        ncclComm_t comm, hipStream_t stream, const char* proto , int nChannels );
 /*! @endcond */
     
 /*! @brief      Receive with user config
@@ -1011,10 +1011,10 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     @param[in]  proto         protocol configured by the user 
     @param[in]  nChannels     nChannels configured by the user */
     ncclResult_t  duNcclRecv(void* recvbuff, size_t count, ncclDataType_t datatype, int peer,
-        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+        ncclComm_t comm, hipStream_t stream, const char* proto , int nChannels );
 /*! @cond       include_hidden */
     ncclResult_t pduNcclRecv(void* recvbuff, size_t count, ncclDataType_t datatype, int peer,
-        ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+        ncclComm_t comm, hipStream_t stream, const char* proto , int nChannels );
 /*! @endcond */
 /*! @brief      Gather with user config
     @details    Root device gathers *sendcount* values from other GPUs into *recvbuff*,
@@ -1037,11 +1037,11 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     @param[in]  nChannels     nChannels configured by the user */
     ncclResult_t  duNcclGather(const void* sendbuff, void* recvbuff, size_t sendcount,
         ncclDataType_t datatype, int root, ncclComm_t comm, hipStream_t stream,
-        const char* proto = nullptr, int nChannels = 0);
+        const char* proto , int nChannels );
 /*! @cond       include_hidden */
     ncclResult_t pduNcclGather(const void* sendbuff, void* recvbuff, size_t sendcount,
         ncclDataType_t datatype, int root, ncclComm_t comm, hipStream_t stream,
-        const char* proto = nullptr, int nChannels = 0);
+        const char* proto , int nChannels );
 /*! @endcond */
     
 /*! @brief      Scatter with user config
@@ -1064,11 +1064,11 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     @param[in]  nChannels     nChannels configured by the user */
     ncclResult_t  duNcclScatter(const void* sendbuff, void* recvbuff,
         size_t recvcount, ncclDataType_t datatype, int root, ncclComm_t comm,
-        hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+        hipStream_t stream, const char* proto , int nChannels );
 /*! @cond       include_hidden */
     ncclResult_t pduNcclScatter(const void* sendbuff, void* recvbuff,
         size_t recvcount, ncclDataType_t datatype, int root, ncclComm_t comm,
-        hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+        hipStream_t stream, const char* proto , int nChannels );
 /*! @endcond */
     
 /*! @brief      All-To-All with user config
@@ -1089,10 +1089,10 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     @param[in]  proto         protocol configured by the user 
     @param[in]  nChannels     nChannels configured by the user */
     ncclResult_t  duNcclAllToAll(const void* sendbuff, void* recvbuff, size_t count,
-        ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+        ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream, const char* proto , int nChannels );
 /*! @cond       include_hidden */
     ncclResult_t pduNcclAllToAll(const void* sendbuff, void* recvbuff, size_t count,
-        ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream, const char* proto = nullptr, int nChannels = 0);
+        ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream, const char* proto , int nChannels );
 /*! @endcond */
     
 /*! @brief      All-To-Allv
@@ -1119,12 +1119,12 @@ ncclResult_t pmscclUnloadAlgo(mscclAlgoHandle_t mscclAlgoHandle);
     ncclResult_t  duNcclAllToAllv(const void *sendbuff, const size_t sendcounts[],
         const size_t sdispls[], void *recvbuff, const size_t recvcounts[],
         const size_t rdispls[], ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream,
-        const char* proto = nullptr, int nChannels = 0);
+        const char* proto , int nChannels );
 /*! @cond       include_hidden */
     ncclResult_t pduNcclAllToAllv(const void *sendbuff, const size_t sendcounts[],
         const size_t sdispls[], void *recvbuff, const size_t recvcounts[],
         const size_t rdispls[], ncclDataType_t datatype, ncclComm_t comm, hipStream_t stream,
-        const char* proto = nullptr, int nChannels = 0);
+        const char* proto , int nChannels );
 /*! @endcond */
 
 /*! @defgroup   rccl_group_api Group semantics
