@@ -26,9 +26,12 @@
 #include <sys/utsname.h>
 
 #include "ibvwrap.h"
+#include "ibvsymbols.h"
 #include "graph/xml.h"
 
+
 #define MAXNAMESIZE 64
+extern struct ncclMlx5Symbols mlx5Symbols;
 static char ncclIbIfName[MAX_IF_NAME_SIZE+1];
 static union ncclSocketAddress ncclIbIfAddr;
 
@@ -427,6 +430,7 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
   if (ncclParamIbDisable()) return ncclInternalError;
   static int shownIbHcaEnv = 0;
   if(wrap_ibv_symbols() != ncclSuccess) { return ncclInternalError; }
+  if(wrap_mlx5_symbols() != ncclSuccess) { return ncclInternalError; }
 
   if (ncclNIbDevs == -1) {
     pthread_mutex_lock(&ncclIbLock);
@@ -1106,6 +1110,102 @@ ncclResult_t ncclIbRtsQp(struct ibv_qp* qp) {
   return ncclSuccess;
 }
 
+
+// Only NCCL_ROCE_SRC_PORT_LIST is supported, single-port compatibility is automatically implemented when the list length is 1
+static int roceSrcPortList[64];
+static int roceSrcPortListLen = 0;
+static int roceSrcPortListParsed = 0; // 0 Unparsed / 1 Parsed
+static pthread_mutex_t roceSrcPortListLock = PTHREAD_MUTEX_INITIALIZER;
+
+static void ncclParseRoceSrcPortListOnce() {
+  if (roceSrcPortListParsed) return;
+  pthread_mutex_lock(&roceSrcPortListLock);
+  if (roceSrcPortListParsed) { pthread_mutex_unlock(&roceSrcPortListLock); return; }
+  const char* env = ncclGetEnv("NCCL_ROCE_SRC_PORT_LIST");
+  if (env && *env) {
+    char* dup = strdup(env);
+    if (dup) {
+      char* save = dup;
+      char* token;
+      while ((token = strsep(&dup, ",:; ")) != NULL) {
+        if (!*token) continue;
+        char* endp = NULL;
+        long v = strtol(token, &endp, 10);
+        if (endp && *endp != '\0') {
+          WARN("NET/IB : NCCL_ROCE_SRC_PORT_LIST token '%s' contains non-numeric tail, skipped", token);
+          continue;
+        }
+        if (v <= 0 || v > 65535) {
+          WARN("NET/IB : NCCL_ROCE_SRC_PORT_LIST port %ld out of valid UDP range, skipped", v);
+          continue;
+        }
+        if (roceSrcPortListLen < (int)(sizeof(roceSrcPortList)/sizeof(roceSrcPortList[0]))) {
+          roceSrcPortList[roceSrcPortListLen++] = (int)v;
+        } else {
+          WARN("NET/IB : NCCL_ROCE_SRC_PORT_LIST too long, extra ports ignored");
+          break;
+        }
+      }
+      free(save);
+    } else {
+  WARN("NET/IB : NCCL_ROCE_SRC_PORT_LIST strdup failed, cannot parse port list");
+    }
+    if (roceSrcPortListLen > 0) {
+  INFO(NCCL_INIT|NCCL_NET, "NET/IB : NCCL_ROCE_SRC_PORT_LIST parsed (%d entries)", roceSrcPortListLen);
+      for (int i=0; i<roceSrcPortListLen; i++) {
+  INFO(NCCL_INIT|NCCL_NET, "NET/IB :   NCCL_ROCE_SRC_PORT_LIST[%d]=%d", i, roceSrcPortList[i]);
+      }
+  // Use existing NCCL_PARAM(IbQpsPerConn, "IB_QPS_PER_CONNECTION", 1)
+  int qpsPerConn = (int)ncclParamIbQpsPerConn();
+      if (roceSrcPortListLen > qpsPerConn) {
+        WARN("NET/IB : NCCL_ROCE_SRC_PORT_LIST has %d ports but QPS_PER_CONNECTION=%d; extra ports will only be used after wrapping (not all consumed in one connection)", roceSrcPortListLen, qpsPerConn);
+      }
+    } else {
+  INFO(NCCL_INIT|NCCL_NET, "NET/IB : NCCL_ROCE_SRC_PORT_LIST provided but no valid entries parsed");
+    }
+  }
+  roceSrcPortListParsed = 1;
+  pthread_mutex_unlock(&roceSrcPortListLock);
+}
+
+static inline int ncclGetRoceSrcPortForQpIndex(int qIndex) {
+  if (!roceSrcPortListParsed) ncclParseRoceSrcPortListOnce();
+  if (roceSrcPortListLen > 0) {
+    if (qIndex < 0) qIndex = 0; // Defensive: use the first port for flush QP as well
+    return roceSrcPortList[qIndex % roceSrcPortListLen];
+  }
+  return 0; // If not configured, do not modify
+}
+
+// RoCEv2'port range
+#define ROCEV2_SRC_PORT_MAX 65535
+#define ROCEV2_SRC_PORT_MIN 49152
+
+ncclResult_t ncclIbModifyQpSrcPort(struct ibv_qp* qp, int qIndex) { 
+  int port = ncclGetRoceSrcPortForQpIndex(qIndex);
+  if (port == 0) return ncclSuccess; //if not configured no modification will be made
+  if (port < ROCEV2_SRC_PORT_MIN || port > ROCEV2_SRC_PORT_MAX) {
+    WARN("NET/IB : Invalid UDP port %d, must be between %d-%d", port,ROCEV2_SRC_PORT_MIN,ROCEV2_SRC_PORT_MAX);
+    return ncclInternalError;
+  }
+
+  if (mlx5Symbols.mlx5dv_modify_qp_udp_sport == NULL) {
+    WARN("NET/IB : mlx5dv_modify_qp_udp_sport symbol not found");
+    return ncclInternalError;
+  }
+
+  int ret = mlx5Symbols.mlx5dv_modify_qp_udp_sport(qp, port);
+  if (ret != 0) {
+    WARN("NET/IB :  Failed to modify QP %p (qpn=0x%X) src UDP port to %d (qIndex=%d),ret=%d", (void*)qp, qp->qp_num, port, qIndex, ret);
+    return ncclInternalError;
+  }
+
+  // Print qpn in hex to match Wireshark RoCE QP field (e.g. Wireshark shows QP=0x00e588)
+  INFO(NCCL_NET, "NET/IB : QP %p (qpn=0x%X) src UDP port set to %d (qIndex=%d)", (void*)qp, qp->qp_num, port, qIndex);
+  return ncclSuccess;
+}
+
+
 ncclResult_t ncclIbListen(int dev, void* opaqueHandle, void** listenComm) {
   struct ncclIbListenComm* comm;
   NCCLCHECK(ncclCalloc(&comm, 1));
@@ -1120,6 +1220,7 @@ ncclResult_t ncclIbListen(int dev, void* opaqueHandle, void** listenComm) {
   *listenComm = comm;
   return ncclSuccess;
 }
+
 
 ncclResult_t ncclIbConnect(int dev, void* opaqueHandle, void** sendComm, ncclNetDeviceHandle_t** /*sendDevComm*/) {
   struct ncclIbHandle* handle = (struct ncclIbHandle*) opaqueHandle;
@@ -1153,6 +1254,7 @@ ib_connect_check:
   mergedDev = ncclIbMergedDevs + dev;
   comm->base.ndevs = mergedDev->ndevs;
   comm->base.nqps = ncclParamIbQpsPerConn() * comm->base.ndevs; // We must have at least 1 qp per-device
+  INFO(NCCL_NET, "NET/IB: nqps = %d (QPS_PER_CONNECTION=%ld, ndevs=%d)", comm->base.nqps, ncclParamIbQpsPerConn(), comm->base.ndevs);
   comm->base.isSend = true;
 
   // Init PD, Ctx for each IB device
@@ -1169,6 +1271,7 @@ ib_connect_check:
   // Alternate QPs between devices
   int devIndex;
   devIndex = 0;
+
   for (int q = 0; q < comm->base.nqps; q++) {
     ncclIbSendCommDev* commDev = comm->devs + devIndex;
     ncclIbDev* ibDev = ncclIbDevs + commDev->base.ibDevN;
@@ -1208,7 +1311,7 @@ ib_connect_check:
       for (int q = 0; q < comm->base.nqps; q++) {
         // Print just the QPs for this dev
         if (comm->base.qps[q].devIndex == i)
-          INFO(NCCL_NET,"NET/IB: %s %d IbDev %d Port %d qpn %d mtu %d LID %d subnet-prefix %lu  FLID %d fifoRkey=0x%x fifoLkey=0x%x",
+          INFO(NCCL_NET,"NET/IB: %s %d IbDev %d Port %d qpn 0x%X mtu %d LID %d subnet-prefix %lu  FLID %d fifoRkey=0x%x fifoLkey=0x%x",
             comm->base.ndevs > 2 ? "NCCL MergedDev" : "NCCL Dev",
             dev, commDev->base.ibDevN, ibDev->portNum, meta.qpInfo[q].qpn, devInfo->mtu, devInfo->lid,
 	    devInfo->gid.global.subnet_prefix, ncclIbExtractFlid(&devInfo->gid), devInfo->fifoRkey, commDev->fifoMr->lkey);
@@ -1217,7 +1320,7 @@ ib_connect_check:
       for (int q = 0; q < comm->base.nqps; q++) {
         // Print just the QPs for this dev
         if (comm->base.qps[q].devIndex == i)
-          INFO(NCCL_NET,"NET/IB: %s %d IbDev %d Port %d qpn %d mtu %d query_ece={supported=%d, vendor_id=0x%x, options=0x%x, comp_mask=0x%x} GID %ld (%lX/%lX) fifoRkey=0x%x fifoLkey=0x%x",
+          INFO(NCCL_NET,"NET/IB: %s %d IbDev %d Port %d qpn 0x%X mtu %d query_ece={supported=%d, vendor_id=0x%x, options=0x%x, comp_mask=0x%x} GID %ld (%lX/%lX) fifoRkey=0x%x fifoLkey=0x%x",
             comm->base.ndevs > 2 ? "NCCL MergedDev" : "NCCL Dev", dev,
             commDev->base.ibDevN, ibDev->portNum, meta.qpInfo[q].qpn, devInfo->mtu, meta.qpInfo[q].ece_supported, meta.qpInfo[q].ece.vendor_id, meta.qpInfo[q].ece.options, meta.qpInfo[q].ece.comp_mask, (int64_t)commDev->base.gidInfo.localGidIndex,
             devInfo->gid.global.subnet_prefix, devInfo->gid.global.interface_id, devInfo->fifoRkey, commDev->fifoMr->lkey);
@@ -1296,6 +1399,10 @@ ib_connect:
 
     NCCLCHECK(ncclIbRtrQp(qp, &commDev->base.gidInfo, remQpInfo->qpn, remDevInfo, false));
     NCCLCHECK(ncclIbRtsQp(qp));
+    //The link_layer of the remote QP is the same as that of the local QP.Use it to determine whether to modify the src UDP port.
+    if (link_layer == IBV_LINK_LAYER_ETHERNET) {
+      (void)ncclIbModifyQpSrcPort(qp, q);
+    }
   }
 
   if (link_layer == IBV_LINK_LAYER_ETHERNET ) { // RoCE
@@ -1303,8 +1410,8 @@ ib_connect:
       struct ncclIbQp* qp = comm->base.qps + q;
       int ibDevN = comm->devs[qp->devIndex].base.ibDevN;
       struct ncclIbDev* ibDev = ncclIbDevs + ibDevN;
-      INFO(NCCL_NET,"NET/IB: IbDev %d Port %d qpn %d set_ece={supported=%d, vendor_id=0x%x, options=0x%x, comp_mask=0x%x}",
-        ibDevN, ibDev->portNum, remMeta.qpInfo[q].qpn, remMeta.qpInfo[q].ece_supported, remMeta.qpInfo[q].ece.vendor_id, remMeta.qpInfo[q].ece.options, remMeta.qpInfo[q].ece.comp_mask);
+      INFO(NCCL_NET,"NET/IB: IbDev %d Port %d qpn 0x%X set_ece={supported=%d, vendor_id=0x%x, options=0x%x, comp_mask=0x%x}",
+      ibDevN, ibDev->portNum, remMeta.qpInfo[q].qpn, remMeta.qpInfo[q].ece_supported, remMeta.qpInfo[q].ece.vendor_id, remMeta.qpInfo[q].ece.options, remMeta.qpInfo[q].ece.comp_mask);
     }
   }
 
@@ -1375,6 +1482,7 @@ ib_recv:
   mergedDev = ncclIbMergedDevs + lComm->dev;
   rComm->base.ndevs = mergedDev->ndevs;
   rComm->base.nqps  = ncclParamIbQpsPerConn() * rComm->base.ndevs; // We must have at least 1 qp per-device
+  INFO(NCCL_NET, "NET/IB: nqps = %d (QPS_PER_CONNECTION=%ld, ndevs=%d)", rComm->base.nqps, ncclParamIbQpsPerConn(), rComm->base.ndevs);
   rComm->base.isSend = false;
 
   rComm->base.nRemDevs = remMeta.ndevs;
@@ -1433,6 +1541,9 @@ ib_recv:
     bool override_tc = (q == 0) ? true : false;
     NCCLCHECK(ncclIbRtrQp(qp->qp, &rCommDev->base.gidInfo, remMeta.qpInfo[q].qpn, remDevInfo, override_tc));
     NCCLCHECK(ncclIbRtsQp(qp->qp));
+    if (ibDev->portAttr.link_layer == IBV_LINK_LAYER_ETHERNET) {
+      (void)ncclIbModifyQpSrcPort(qp->qp, q);
+    }
   }
 
   rComm->flushEnabled = ((ncclIbGdrSupport() == ncclSuccess || ncclIbDmaBufSupport(lComm->dev) == ncclSuccess)
@@ -1466,6 +1577,9 @@ ib_recv:
       devInfo.mtu         = ibDev->portAttr.active_mtu;
       NCCLCHECK(ncclIbRtrQp(rCommDev->gpuFlush.qp.qp, &rCommDev->base.gidInfo, rCommDev->gpuFlush.qp.qp->qp_num, &devInfo, false));
       NCCLCHECK(ncclIbRtsQp(rCommDev->gpuFlush.qp.qp));
+      if (ibDev->portAttr.link_layer == IBV_LINK_LAYER_ETHERNET) {
+        (void)ncclIbModifyQpSrcPort(rCommDev->gpuFlush.qp.qp, -1); // flush QP use the first port
+      }
     }
 
     // Fill Handle
