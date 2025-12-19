@@ -91,13 +91,13 @@ RCCL_PARAM(CollXHCLChannelNum, "COLL_XHCL_CHANNEL_NUM", MAXCHANNELS);
 RCCL_PARAM(P2pXHCLChannelNum, "P2P_XHCL_CHANNEL_NUM", MAXCHANNELS);
 
 static int getCollXhclChannelNum(struct ncclComm* comm) {
-  // Do not use extend pcie mem channel for mult nodes
-  return comm->nNodes > 1 ? MAXCHANNELS : rcclParamCollXHCLChannelNum();
+  // Do not use extend pcie mem channel for mult nodes and only pcie link
+  return (comm->nNodes > 1 || comm->linkTopoType == HCU_LINK_MODE_ONLY_PCIE) ? MAXCHANNELS : rcclParamCollXHCLChannelNum();
 }
 
 static int getP2pXhclChannelNum(struct ncclComm* comm) {
-  // Do not use extend pcie mem channel for mult nodes
-  return comm->nNodes > 1 ? MAXCHANNELS : rcclParamP2pXHCLChannelNum();
+  // Do not use extend pcie mem channel for mult nodes and only pcie link
+  return (comm->nNodes > 1 || comm->linkTopoType == HCU_LINK_MODE_ONLY_PCIE) ? MAXCHANNELS : rcclParamP2pXHCLChannelNum();
 }
 
 static bool checkXhclMemChannel(struct ncclComm* comm, int connIndex, int channelId) {
@@ -241,7 +241,7 @@ ncclResult_t p2pCanConnect(int* ret, struct ncclTopoSystem* topo, struct ncclTop
   } while (0)
 
 // cuMem API support
-ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, ncclIpcDesc *ipcDesc, void **ptr) {
+ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, ncclIpcDesc *ipcDesc, void **ptr, bool useXdp) {
   if (ncclCuMemEnable()) {
 #if CUDART_VERSION >= 11030
     CUmemAllocationHandleType type = ncclCuMemHandleType;
@@ -260,11 +260,20 @@ ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, ncclIpcDesc *ipcDesc, v
 #endif
   } else {
     // Allocate a CUDA buffer and generate an IPC handle for it
-#if defined(HIP_UNCACHED_MEMORY)
-    NCCLCHECK(ncclCudaCalloc((char **)ptr, size, nullptr, hipDeviceMallocUncached));
-#else
-    NCCLCHECK(ncclCudaCalloc((char **)ptr, size, nullptr, hipDeviceMallocFinegrained));
+    bool useNorMem = true;
+#if defined(HIP_UNCACHED_XDP_MEMORY)
+    if (useXdp) {
+      NCCLCHECK(ncclCudaCalloc((char **)ptr, size, nullptr, hipDeviceMallocUncachedXdp));
+      if (*ptr != nullptr) useNorMem = false;
+    }
 #endif
+    if (useNorMem) {
+#if defined(HIP_UNCACHED_MEMORY)
+      NCCLCHECK(ncclCudaCalloc((char **)ptr, size, nullptr, hipDeviceMallocUncached));
+#else
+      NCCLCHECK(ncclCudaCalloc((char **)ptr, size, nullptr, hipDeviceMallocFinegrained));
+#endif
+    }
     cudaError_t res = cudaIpcGetMemHandle(&ipcDesc->devIpc, *ptr);
     if (res != cudaSuccess) {
       WARN("cudaIpcGetMemHandle failed : %s", cudaGetErrorString(res));
@@ -722,7 +731,9 @@ static ncclResult_t p2pRecvProxySetup(struct ncclProxyConnection* connection, st
   struct ncclP2pBuff* p2pBuff = (struct ncclP2pBuff*)respBuff;
 
   if (checkXhclMemChannel(connection->comm, connection->connIndex, connection->channelId)) {
-    NCCLCHECK(ncclP2pAllocateShareableBuffer(size, &p2pBuff->ipcDesc, &p2pBuff->directPtr));
+    NCCLCHECK(ncclP2pAllocateShareableBuffer(size, &p2pBuff->ipcDesc, &p2pBuff->directPtr, 
+      // 只有pcie互联时，P2P的recv buff需要申请为xdp，否则存在hdp同时读写性能问题
+      (connection->comm->linkTopoType == HCU_LINK_MODE_ONLY_PCIE) && (connection->comm->nNodes > 1) && connection->comm->useXdp));
     p2pBuff->memType = P2P_HIP_NOR_MEM;
   } else {
     p2pBuff->directPtr = NULL;
