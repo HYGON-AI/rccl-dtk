@@ -177,7 +177,7 @@ ncclResult_t buildMlx5Symbols(struct ncclMlx5Symbols* mlx5Symbols) {
   if (tmp == NULL) {
     INFO(NCCL_INIT, "mlx5dv_modify_qp_udp_sport not found, skip mlx5 features");
     mlx5Symbols->mlx5dv_modify_qp_udp_sport = NULL;
-    if (mlx5handle != NULL) dlclose(mlx5handle);
+    // Keep mlx5 library loaded to prevent a crash during unload.
     return ncclSuccess;
   }
   mlx5Symbols->mlx5dv_modify_qp_udp_sport = (int (*)(struct ibv_qp*, uint16_t))tmp;
