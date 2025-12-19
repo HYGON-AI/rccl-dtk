@@ -53,6 +53,7 @@
 
 #include "msccl/msccl_lifecycle.h"
 #include "msccl/msccl_status.h"
+#include "rocm_smi_wrap.h"
 
 #ifndef STR2
   #define STR2(v) #v
@@ -952,6 +953,8 @@ NCCL_PARAM(AllocP2pNetLLBuffers, "ALLOC_P2P_NET_LL_BUFFERS", 0);
 // MNNVL: Flag to indicate whether to enable Multi-Node NVLink
 NCCL_PARAM(MNNVLEnable, "MNNVL_ENABLE", 2);
 
+RCCL_PARAM(NetGdrWriteUseXdpEnable, "GDR_WRITE_USE_XDP_ENABLE", 1);
+
 /* 获取本地rank的hsa agent */
 ncclResult_t getLocalHsaAgent(struct ncclComm* comm)
 {
@@ -972,6 +975,77 @@ ncclResult_t getLocalHsaAgent(struct ncclComm* comm)
     comm->validHsaAgent = false;
     return ncclInternalError;
   }
+}
+
+/* 获取本节点DCU的互联方式 */
+ncclResult_t getHwLinkTopo(struct ncclComm* comm)
+{
+  uint32_t deviceCnt = 0;
+  uint32_t linkNum = 0;
+  uint32_t linkState = 0;
+  uint64_t pciBdf = 0;
+  RSMI_XHCL_LINK_TYPE devType;
+
+  comm->linkTopoType = HCU_LINK_MODE_NON;
+#ifdef RSMI_SUPPORT_XHCL_TOPO
+  NCCLCHECK(rocm_smi_getNumDevice(&deviceCnt));
+  for (int dev = 0; dev < deviceCnt; dev++) {
+    NCCLCHECK(rocm_smi_dev_xhcl_link_number_get(dev, &linkNum));
+    if (linkNum == 0) {
+      comm->linkTopoType = HCU_LINK_MODE_ONLY_PCIE;
+      INFO(NCCL_INIT, "Rank:%d link topo type is only pcie",  comm->rank);
+      return ncclSuccess;
+    }
+
+    for (int link = 0; link < linkNum; link++) {
+      NCCLCHECK(rocm_smi_dev_xhcl_link_state_get(dev, link, &linkState));
+      if (linkState == 0) {
+        continue;
+      }
+
+      NCCLCHECK(rocm_smi_dev_xhcl_link_remote_dev_type_get(dev, link, &devType));
+      NCCLCHECK(rocm_smi_dev_xhcl_link_remote_bdfid_get(dev, link, &pciBdf));
+      if (devType == RSMI_XHCL_LINK_TYPE_SWITCH) {
+        comm->linkTopoType = HCU_LINK_MODE_XHCL_HYSWITCH;
+      } else if (devType == RSMI_XHCL_LINK_TYPE_GPU) {
+        comm->linkTopoType = HCU_LINK_MODE_XHCL_DIRECT;
+      } else {
+        continue;
+      }
+
+      INFO(NCCL_INIT, "Rank:%d Get link topo from rocmDev:%d linkNum:%d link:%d linkState:%d remote type:%d bdf:0x%lx topoType:%d", 
+        comm->rank, dev, linkNum, link, linkState, devType, pciBdf, comm->linkTopoType);
+      return ncclSuccess;
+    }
+  }
+
+  WARN("Rank:%d fail to get link topo type deviceCnt %d", comm->rank, deviceCnt);
+  return ncclInternalError;
+#else
+  return ncclSuccess;
+#endif
+}
+/* 读系统驱动文件xdp_size，判断是否开启XDP */
+bool checkXdpStatus() {
+  FILE *file = NULL;
+  int xdp_value = 0;
+  int result = 0;
+
+  file = fopen("/sys/module/hycu/parameters/xdp_size", "r");
+  if (file == NULL) {
+    INFO(NCCL_INIT, "Could not open /sys/module/hycu/parameters/xdp_size, XDP is disabled");
+    return false;  // 文件不存在或无法打开
+  }
+  // 读取文件中的值
+  if (fscanf(file, "%d", &xdp_value) == 1) {
+    if(xdp_value != 0) 
+      INFO(NCCL_INIT, "XDP Switch is on with xdp_size : %d", xdp_value);
+    else 
+      INFO(NCCL_INIT, "XDP Switch is off with xdp_size : %d", xdp_value);
+    result = (xdp_value != 0);
+  }
+  fclose(file);
+  return result;
 }
 
 #if CUDART_VERSION >= 11030
@@ -1102,6 +1176,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   bool mscclNeedsProxy = needsProxy;
 
   getLocalHsaAgent(comm);
+  comm->useXdp = rcclParamNetGdrWriteUseXdpEnable() && checkXdpStatus();
 
   timers[TIMER_INIT_ALLGATHER] = clockNano();
   // AllGather1 - begin
@@ -1242,6 +1317,9 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
 
   // Determine local Nvls support
   NCCLCHECK(ncclNvlsInit(comm));
+
+  NCCLCHECK(getHwLinkTopo(comm));
+  INFO(NCCL_INIT, "Transport init rank %d useXdp %d linkTopoType %d", comm->rank, comm->useXdp, comm->linkTopoType);
 
   // User-configured Graph
   comm->topo->UserGraphFile = comm->config.graph;

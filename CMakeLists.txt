@@ -203,6 +203,9 @@ check_symbol_exists("hipDeviceMallocUncached" "hip/hip_runtime_api.h" HIP_UNCACH
 ### Check for hipDeviceMallocContiguous support
 check_symbol_exists("hipDeviceMallocContiguous" "hip/hip_runtime_api.h" HIP_CONTIGUOUS_MEMORY)
 
+### Check for hipDeviceMallocUncachedXdp support
+check_symbol_exists("hipDeviceMallocUncachedXdp" "hip/hip_runtime_api.h" HIP_UNCACHED_XDP_MEMORY)
+
 unset(CMAKE_REQUIRED_LIBRARIES)
 
 ### Check for indirect function call support
@@ -769,6 +772,12 @@ else()
   else()
     message(STATUS "--hipcc-func-supp disabled")
   endif()
+endif()
+if(${HIP_UNCACHED_XDP_MEMORY})
+  target_compile_definitions(rccl PRIVATE HIP_UNCACHED_XDP_MEMORY)
+  message(STATUS "HIP_UNCACHED_XDP_MEMORY enabled")
+else()
+  message(STATUS "HIP_UNCACHED_XDP_MEMORY disabled")
 endif()
 if (BUILD_BFD)
   if (HAVE_BFD)
