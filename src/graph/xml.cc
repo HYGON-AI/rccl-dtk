@@ -1053,8 +1053,15 @@ ncclResult_t ncclTopoFillNet(struct ncclXml* xml, const char* pciPath, const cha
     NCCLCHECK(xmlSetAttrIfUnset(parent, "class", "0x02"));
     NCCLCHECK(ncclTopoGetXmlFromSys(parent, xml));
   } else {
-    // Virtual NIC, no PCI device, attach to first CPU
-    NCCLCHECK(xmlFindTag(xml, "cpu", &parent));
+    // Virtual NIC, no PCI device, attach to NUMA 0
+    struct ncclXmlNode* topNode;
+    NCCLCHECK(xmlFindTag(xml, "system", &topNode));
+    NCCLCHECK(xmlGetSubKv(topNode, "cpu", &parent, "numaid", "0"));
+    if (parent == NULL) {
+      NCCLCHECK(xmlAddNode(xml, topNode, "cpu", &parent));
+      NCCLCHECK(xmlSetAttr(parent, "numaid", "0"));
+      NCCLCHECK(ncclTopoGetXmlFromCpu(parent, xml));
+    }
   }
 
   struct ncclXmlNode* nicNode = NULL;
