@@ -69,8 +69,8 @@ ncclResult_t ncclTopoGetGpuCount(struct ncclTopoSystem* system, int* count);
 ncclResult_t ncclTopoGetNetCount(struct ncclTopoSystem* system, int* count);
 ncclResult_t ncclTopoGetNvsCount(struct ncclTopoSystem* system, int* count);
 ncclResult_t ncclTopoGetLocalNet(struct ncclTopoSystem* system, int rank, int channelId, int64_t* id, int* dev);
-ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex, int localChannelId = 0, int** gpus = NULL, int* gpuCount = 0);
-ncclResult_t ncclTopoGetLocalGpuForPerpeer1(struct ncclTopoSystem* system, int rank, int localRank, int channelId, int* gpuIndex);
+ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex, int** gpus = NULL, int* gpuCount = 0);
+ncclResult_t ncclTopoGetLocalGpuForGPUBalance(struct ncclTopoSystem* system, int rank, int localRank, int channelId, int* gpuIndex);
 ncclResult_t getLocalNetCountByBw(struct ncclTopoSystem* system, int gpu, int *count);
 
 #define NCCL_TOPO_MAX_NODES 64

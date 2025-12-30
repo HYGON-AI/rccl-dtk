@@ -1012,7 +1012,7 @@ ncclResult_t ncclTopoGetLocalNet(struct ncclTopoSystem* system, int rank, int ch
   return ncclSuccess;
 }
 
-ncclResult_t ncclTopoGetLocalGpuForPerpeer1(struct ncclTopoSystem* system, int rank, int localRank, int channelId, int* gpuIndex) {
+ncclResult_t ncclTopoGetLocalGpuForGPUBalance(struct ncclTopoSystem* system, int rank, int localRank, int channelId, int* gpuIndex) {
   int ngpus = system->nodes[GPU].count;
 
   // Step 1: Find the network device (netdev) corresponding to the current rank,
@@ -1025,7 +1025,7 @@ ncclResult_t ncclTopoGetLocalGpuForPerpeer1(struct ncclTopoSystem* system, int r
   NCCLCHECK(ncclCalloc(&rankGetLocalGpus, ngpus));
   int rankGetlocalGpuCount = 0;
   int g_tmp;
-  NCCLCHECK(ncclTopoGetLocalGpu(system, netId, &g_tmp, 0, &rankGetLocalGpus, &rankGetlocalGpuCount));
+  NCCLCHECK(ncclTopoGetLocalGpu(system, netId, &g_tmp, &rankGetLocalGpus, &rankGetlocalGpuCount));
   // Find the index of the target rank in the GPU list
   int rankToIndex = -1;
   for (int lg=0; lg<rankGetlocalGpuCount; lg++) {
@@ -1048,7 +1048,7 @@ ncclResult_t ncclTopoGetLocalGpuForPerpeer1(struct ncclTopoSystem* system, int r
   int* localRankGetlocalGpus = NULL;
   NCCLCHECK(ncclCalloc(&localRankGetlocalGpus, ngpus));
   int localRankGetlocalGpuCount = 0;
-  NCCLCHECK(ncclTopoGetLocalGpu(system, netId, &g_tmp, 0, &localRankGetlocalGpus, &localRankGetlocalGpuCount));
+  NCCLCHECK(ncclTopoGetLocalGpu(system, netId, &g_tmp, &localRankGetlocalGpus, &localRankGetlocalGpuCount));
 
   // Step 3: Determine the final GPU index by mapping the rankToIndex from Step 1 to the peer's GPU list
   if (rankToIndex < localRankGetlocalGpuCount) {
@@ -1062,31 +1062,13 @@ ncclResult_t ncclTopoGetLocalGpuForPerpeer1(struct ncclTopoSystem* system, int r
   return ncclSuccess;
 }
 
-ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex, int localChannelId, int** gpus, int* gpuCount) { 
+ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex, int** gpus, int* gpuCount) { 
   int netIndex;
   NCCLCHECK(ncclTopoIdToIndex(system, NET, netId, &netIndex));
   int* localGpus = NULL;
   int localGpuCount;
-  NCCLCHECK(ncclTopoGetLocal(system, NET, netIndex, GPU, &localGpus, &localGpuCount, NULL));    
-    
-  const char *loadbalancingType = ncclGetEnv("RCCL_PXN_GPU_BALANCE");
-  if (loadbalancingType != NULL) {
-    INFO(NCCL_ENV, "RCCL_PXN_GPU_BALANCE set by environment to %s.", loadbalancingType);
-    if (strcmp(loadbalancingType, "1") == 0) {   // new GPU Balancing
-      *gpuIndex = localGpus[localChannelId % localGpuCount];
-      if (gpus) {  
-        *gpus = localGpus;
-        *gpuCount = localGpuCount;
-      } else {
-        if(localGpus) free(localGpus);
-        localGpus = NULL;
-      } 
-      return ncclSuccess;
-    } else    // default
-      goto default_loadbalancing;
-  } 
+  NCCLCHECK(ncclTopoGetLocal(system, NET, netIndex, GPU, &localGpus, &localGpuCount, NULL));  
 
-default_loadbalancing: 
   for (int c=0; c<MAXCHANNELS/**128 */; c++) {
     for (int lg=0; lg<localGpuCount; lg++) {    
       int g = localGpus[lg];
@@ -1095,8 +1077,16 @@ default_loadbalancing:
       NCCLCHECK(ncclTopoGetLocalNet(system, gpu->gpu.rank, c, &id, NULL));
       if (netId == id) {
         *gpuIndex = g;
-        if(localGpus) free(localGpus);
-        localGpus = NULL;
+        if (gpus) {  
+          *gpus = localGpus;
+          *gpuCount = localGpuCount;
+        } else {
+          if(gpuCount) {
+            *gpuCount = localGpuCount;
+          } 
+          if(localGpus) free(localGpus);
+          localGpus = NULL;
+        }
         return ncclSuccess;
       }
     }
