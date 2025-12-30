@@ -188,17 +188,39 @@ typedef struct nccl_uct_context {
   nccl_uct_worker_t       *worker_list;
 } nccl_uct_context_t;
 
-typedef struct {
-    uct_pending_req_t uct;    /* UCX pending header (must be first) */
+typedef ucs_status_t (*uct_zcopy_pending_callback_t)(uct_ep_h ep,
+                                             const uct_iov_t *iov, size_t iovcnt,
+                                             uint64_t remote_addr, uct_rkey_t rkey,
+                                             uct_completion_t *comp);
 
-    //params for uct_ep_get_zcopy
-    nccl_uct_comm_t* base_comm;
-    void* data;
-    int size;
-    nccl_uct_memh_t* uct_memh;
-    uct_completion_t* completion;
-    uct_iov_t iov;
-} nccl_pending_flush_req_t;
+typedef struct {
+  uct_pending_req_t super;    /* UCX pending header (must be first) */
+  uct_ep_h ep;
+  uct_iov_t iov;
+  int iovcnt;
+  uint64_t remote_addr;
+  uct_rkey_t rkey;
+  uct_completion_t* completion;
+  uct_zcopy_pending_callback_t func;
+} nccl_uct_zcopy_pending_req_t;
+
+
+typedef struct {
+  uct_pending_req_t super;    /* UCX pending header (must be first) */
+  uct_ep_h ep;
+  nccl_uct_am_type_t am_type;
+  uint64_t header;
+  void *payload;
+  unsigned length;
+} nccl_uct_am_short_pending_req_t;
+
+
+ucs_status_t wrap_uct_ep_am_short(uct_ep_h ep,nccl_uct_am_type_t am_type , uint64_t header,
+                                              const void *payload, unsigned length);
+
+ucs_status_t wrap_uct_ep_zcopy(uct_ep_h ep , uct_iov_t* iov, int iovcnt, uint64_t remote_addr,
+                                          uct_rkey_t rkey , uct_completion_t* completion,
+                                          uct_zcopy_pending_callback_t cb);
 
 #define UCXCHECK(statement, failure_action, message, ...) \
   do { \
