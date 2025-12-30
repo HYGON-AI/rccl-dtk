@@ -265,7 +265,9 @@ static void nccl_uct_send_atp(nccl_uct_wr_comm_t *comm,
     atp.sizes[i] = rdesc->reqs[i].size;
   }
 
-  status = uct_ep_am_short(comm->base.uct_ep->ep, NCCL_UCT_AM_ATP,
+  //status = uct_ep_am_short(comm->base.uct_ep->ep, NCCL_UCT_AM_ATP,
+  //                          (uint64_t)comm->base.remote.comm, &atp, sizeof(atp));
+  status = wrap_uct_ep_am_short(comm->base.uct_ep->ep, NCCL_UCT_AM_ATP,
                            (uint64_t)comm->base.remote.comm, &atp, sizeof(atp));
   if (status == UCS_OK) {
     rdesc->send_atp = 0;
@@ -293,9 +295,13 @@ static ncclResult_t nccl_uct_send(nccl_uct_wr_comm_t *comm, void *data,
 
   req = nccl_uct_rdesc_get_req(rdesc, i, size); /* NCCL request */
 
-  status = uct_ep_put_zcopy(comm->base.uct_ep->ep, &iov, 1,
-                            (uint64_t)rdesc->desc.chunk[i].data,
-                            rdesc->desc.chunk[i].rkey, &req->completion);
+  // status = uct_ep_put_zcopy(comm->base.uct_ep->ep, &iov, 1,
+  //                           (uint64_t)rdesc->desc.chunk[i].data,
+  //                           rdesc->desc.chunk[i].rkey, &req->completion);
+
+  status = wrap_uct_ep_zcopy(comm->base.uct_ep->ep,&iov, 1,
+                                (uint64_t)rdesc->desc.chunk[i].data,
+                                rdesc->desc.chunk[i].rkey, &req->completion, uct_ep_put_zcopy);
 
   if (status == UCS_OK) {
     req->completion.count--;
@@ -355,9 +361,13 @@ static ncclResult_t nccl_uct_wr_irecv(void *recv_comm, int n, void **data,
 
   nccl_uct_rdesc_set(rdesc, comm->rdesc_id++, n, data, sizes, tags, uct_memh);
 
-  status = uct_ep_am_short(comm->base.uct_ep->ep, NCCL_UCT_AM_RTR,
-                           (uint64_t)comm->base.remote.comm, &rdesc->desc,
-                           nccl_uct_rdesc_size(n));
+  // status = uct_ep_am_short(comm->base.uct_ep->ep, NCCL_UCT_AM_RTR,
+  //                           (uint64_t)comm->base.remote.comm, &rdesc->desc,
+  //                           nccl_uct_rdesc_size(n));
+
+  status = wrap_uct_ep_am_short(comm->base.uct_ep->ep, NCCL_UCT_AM_RTR,
+                            (uint64_t)comm->base.remote.comm, &rdesc->desc,
+                            nccl_uct_rdesc_size(n));
   if (status != UCS_OK) {
     nccl_uct_comm_rdesc_put(rdesc);
     *request = NULL;

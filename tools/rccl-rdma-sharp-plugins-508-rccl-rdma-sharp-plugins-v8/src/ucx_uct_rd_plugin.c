@@ -81,7 +81,11 @@ static void nccl_uct_rd_send_ats(nccl_uct_rd_req_t *req) {
   assert(req->rts_count == req->count);
   assert(req->completion.count == 1);
 
-  status = uct_ep_am_short(req->comm->base.uct_ep->ep, NCCL_UCT_AM_ATS,
+  // status = uct_ep_am_short(req->comm->base.uct_ep->ep, NCCL_UCT_AM_ATS,
+  //                          (uint64_t)req->comm->base.remote.comm,
+  //                          req->remote_req,
+  //                          sizeof(*req->remote_req) * req->rts_count);
+  status = wrap_uct_ep_am_short(req->comm->base.uct_ep->ep, NCCL_UCT_AM_ATS,
                            (uint64_t)req->comm->base.remote.comm,
                            req->remote_req,
                            sizeof(*req->remote_req) * req->rts_count);
@@ -129,8 +133,12 @@ static void nccl_uct_rd_pending_drain(nccl_uct_rd_comm_t *comm) {
   for (; comm->pending.first != comm->pending.last; comm->pending.first++) {
     param = &comm->pending.param[comm->pending.first & NCCL_UCT_PENDING_MASK];
 
-    status = uct_ep_get_zcopy(comm->base.uct_ep->ep, &param->iov, 1, param->rva,
-                              param->rkey, &param->req->completion);
+    // status = uct_ep_get_zcopy(comm->base.uct_ep->ep, &param->iov, 1, param->rva,
+    //                           param->rkey, &param->req->completion);
+
+    status = wrap_uct_ep_zcopy(comm->base.uct_ep->ep, &param->iov, 1,param->rva,
+                                     param->rkey, &param->req->completion, uct_ep_get_zcopy);
+
     if (status == UCS_OK) {
       param->req->completion.count--;
     } else if (status != UCS_INPROGRESS) {
@@ -292,7 +300,9 @@ static ncclResult_t nccl_uct_rd_isend(void *send_comm, void *data, int size,
   rts.u.rkey = uct_memh->bundle.rkey;
   rts.req    = req;
 
-  status = uct_ep_am_short(comm->base.uct_ep->ep, NCCL_UCT_AM_RTS,
+  // status = uct_ep_am_short(comm->base.uct_ep->ep, NCCL_UCT_AM_RTS,
+  //                          (uint64_t)comm->base.remote.comm, &rts, sizeof(rts));
+  status = wrap_uct_ep_am_short(comm->base.uct_ep->ep, NCCL_UCT_AM_RTS,
                            (uint64_t)comm->base.remote.comm, &rts, sizeof(rts));
   if (status != UCS_OK) {
     nccl_uct_rd_req_free(req);

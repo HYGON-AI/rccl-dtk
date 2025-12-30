@@ -10,9 +10,9 @@
 
 static pthread_mutex_t nccl_uct_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* For shca, only support rc_verbs */
 nccl_uct_context_t context = {
-    // .tl_name   = "rc_mlx5",
-
+    //.tl_name   = "rc_mlx5",
     .tl_name   = "rc_verbs",
     .dev_count = -1
 };
@@ -200,6 +200,10 @@ found:
   if (iface_attr.cap.flags & UCT_IFACE_FLAG_GET_ZCOPY) {
     uct_iface->min_get_zcopy = iface_attr.cap.get.min_zcopy;
   }
+  // In the 508 environment, the calculation shows that context.am_short_size (280) is greater than uct_iface->am_max_short (75),
+  //  which causes a goto fail. However, since the 508 environment does not support RCCL message aggregation, 
+  //  the actual number of am_short packets sent is 1, with a size of 56, so it runs normally. 
+  //  We will later use bcopy when n > 1.
 
   // if (context.am_short_size > uct_iface->am_max_short) {
   //   WARN("Failed RTR does not fit in face AM short (%dB > %dB)",
@@ -747,24 +751,6 @@ int nccl_uct_flush_index(nccl_uct_comm_t *base, int *sizes, int n) {
   return last;
 }
 
-static ucs_status_t nccl_uct_flush_pending_cb(uct_pending_req_t* self)
-{
-    nccl_pending_flush_req_t* req = (nccl_pending_flush_req_t*)self;
-
-    ucs_status_t status = uct_ep_get_zcopy(
-        req->base_comm->gpu_flush.uct_ep->ep,
-        &req->iov, 1,
-        (uint64_t)req->data,
-        req->uct_memh->bundle.rkey,
-        req->completion);
-
-    if (status == UCS_INPROGRESS || status == UCS_OK) {
-      free(self);
-      return UCS_OK;
-    }
-    return status;
-}
-
 ncclResult_t nccl_uct_flush(nccl_uct_comm_t *base_comm, void *data, int size,
                             nccl_uct_memh_t *uct_memh,
                             uct_completion_t *completion, void **request) {
@@ -781,42 +767,17 @@ ncclResult_t nccl_uct_flush(nccl_uct_comm_t *base_comm, void *data, int size,
 
   // status = uct_ep_get_zcopy(base_comm->gpu_flush.uct_ep->ep, &iov, 1,
   //                           (uint64_t)data, uct_memh->bundle.rkey, completion);
-  
-  for(; ;){
-    status = uct_ep_get_zcopy(base_comm->gpu_flush.uct_ep->ep, &iov, 1,(uint64_t)data, uct_memh->bundle.rkey, completion);
-    if(status == UCS_INPROGRESS) break;
-    else if (status == UCS_ERR_NO_RESOURCE) //The resource is not available now.Try uct_ep_pending_add
-    {
-      nccl_pending_flush_req_t* req = malloc(sizeof(*req));
-      req->uct.func = nccl_uct_flush_pending_cb;
-      req->base_comm = base_comm;
-      req->data = data;
-      req->size = size;
-      req->uct_memh = uct_memh;
-      req->completion = completion;
-      req->iov = iov;
-      status  = uct_ep_pending_add(base_comm->gpu_flush.uct_ep->ep, &req->uct,1);
-      if (status == UCS_OK) break; 
-      else if (status == UCS_ERR_BUSY) { // The net resource is available now. Try to send it again.
-        free(req);
-        continue;
-      }
-      else return ncclInternalError;
-    }
-    else{
-      *request = NULL;
+
+  status = wrap_uct_ep_zcopy(base_comm->gpu_flush.uct_ep->ep, &iov, 1,
+                                (uint64_t)data, uct_memh->bundle.rkey, completion, uct_ep_get_zcopy);
+
+  if (status != UCS_INPROGRESS) {
+    *request = NULL;
+    if (status != UCS_OK) {
       WARN("Failed to flush local ep comm=%p status=%d", base_comm, status);
       return ncclInternalError;
     }
   }
-  
-  // if (status != UCS_INPROGRESS) {
-  //   *request = NULL;
-  //   if (status != UCS_OK) {
-  //     WARN("Failed to flush local ep comm=%p status=%d", base_comm, status);
-  //     return ncclInternalError;
-  //   }
-  // }
 
   return ncclSuccess;
 }
@@ -917,4 +878,166 @@ ncclResult_t nccl_uct_connect_v6(int dev, void *handle, void **send_comm) {
 ncclResult_t nccl_uct_accept_v6(void *listen_comm, void **recv_comm) {
   ncclNetDeviceHandle_v7_t *dev_handle = NULL;
   return nccl_uct_accept(listen_comm, recv_comm, &dev_handle);
+}
+
+static ucs_status_t nccl_uct_ep_am_short_pending_cb(uct_pending_req_t* self)
+{
+    ucs_status_t status;
+    if (self == NULL)
+    {
+        status = UCS_ERR_INVALID_PARAM;
+        return status;
+    }
+    nccl_uct_am_short_pending_req_t* req = ucs_container_of(self, nccl_uct_am_short_pending_req_t, super);
+    status = uct_ep_am_short(req->ep, req->am_type, req->header, req->payload, req->length);
+
+    if (status == UCS_OK)
+    {
+      free(req->payload);
+      req->payload = NULL;
+      free(req);
+      req = NULL;
+      return UCS_OK;
+    }
+    return status;
+}
+
+static ucs_status_t nccl_uct_ep_zcopy_pending_cb(uct_pending_req_t* self)
+{
+    ucs_status_t status;
+    if (self == NULL)
+    {
+        status = UCS_ERR_INVALID_PARAM;
+        return status;
+    }
+    nccl_uct_zcopy_pending_req_t* req = ucs_container_of(self , nccl_uct_zcopy_pending_req_t, super);
+    status = req->func(req->ep , &req->iov , req->iovcnt , req->remote_addr , req->rkey, req->completion);
+
+    /* uct_rc_ep_process_pending will deal with UCS_ERR_NO_RESOURCE,
+       if UCS_INPROGRESS then returun UCS_OK to uct_rc_ep_process_pending */
+    if (status==UCS_INPROGRESS || status == UCS_OK)
+    {
+        free(req);
+        req = NULL;
+        return UCS_OK;
+    }
+    return status;
+}
+
+ucs_status_t wrap_uct_ep_am_short(uct_ep_h ep,nccl_uct_am_type_t am_type , uint64_t header,
+                                                const void *payload, unsigned length)
+{
+    ucs_status_t status;
+    for( ; ; )
+    {
+        status = uct_ep_am_short(ep, am_type , header, payload, length);
+        if(status == UCS_OK || status == UCS_INPROGRESS)
+        {
+            break;
+        }
+        else if (status == UCS_ERR_NO_RESOURCE)
+        {
+            nccl_uct_am_short_pending_req_t* uct_pending_req = calloc(1, sizeof(nccl_uct_am_short_pending_req_t));
+            if (uct_pending_req == NULL)
+            {
+                break;
+            }
+            uct_pending_req->ep = ep;
+            uct_pending_req->am_type = am_type;
+            uct_pending_req->header = header;
+            uct_pending_req->payload = calloc(1, length);
+            if (uct_pending_req->payload == NULL)
+            {
+                break;
+            }
+            memcpy(uct_pending_req->payload, payload, length);
+            uct_pending_req->length = length;
+            uct_pending_req->super.func = nccl_uct_ep_am_short_pending_cb;
+
+            ucs_status_t pending_status;
+            pending_status = uct_ep_pending_add(ep, &uct_pending_req->super,0);
+            if(pending_status == UCS_OK)
+            {
+                status = UCS_OK;  //uct_ep_am_short usually return UCS_OK
+                break;
+            }
+            else if (pending_status == UCS_ERR_BUSY)
+            {
+                free(uct_pending_req->payload);
+                uct_pending_req->payload = NULL;
+                free(uct_pending_req);
+                uct_pending_req = NULL;
+                continue;
+            }
+            else
+            {
+                free(uct_pending_req->payload);
+                uct_pending_req->payload = NULL;
+                free(uct_pending_req);
+                uct_pending_req = NULL;
+                WARN("UCT pending returned unexpected value ,pending_status = %d\n", pending_status);
+                break;
+            }
+        }
+        else
+        {
+            WARN("wrap_uct_ep_am_short returned unexpected value , status = %d\n", status);
+            break;
+        }
+    }
+    return status;
+}
+
+ucs_status_t wrap_uct_ep_zcopy(uct_ep_h ep , uct_iov_t* iov, int iovcnt, uint64_t remote_addr,
+                                            uct_rkey_t rkey , uct_completion_t* completion,
+                                            uct_zcopy_pending_callback_t cb)
+{
+    ucs_status_t status;
+    for( ; ; )
+    {
+        status = cb(ep, iov, iovcnt , remote_addr , rkey , completion);
+        if (status == UCS_INPROGRESS || status == UCS_OK)
+        {
+            break;
+        }
+        else if (status == UCS_ERR_NO_RESOURCE)
+        {
+            nccl_uct_zcopy_pending_req_t* uct_pending_req = calloc(1, sizeof(nccl_uct_zcopy_pending_req_t));
+            uct_pending_req->ep = ep;
+            uct_pending_req->iov = *iov; //malloc
+            uct_pending_req->iovcnt = iovcnt;
+            uct_pending_req->remote_addr = remote_addr;
+            uct_pending_req->rkey = rkey;
+            uct_pending_req->completion = completion;
+            uct_pending_req->func = cb;
+            uct_pending_req->super.func = nccl_uct_ep_zcopy_pending_cb;
+
+            ucs_status_t pending_status;
+            pending_status = uct_ep_pending_add(ep, &uct_pending_req->super, 0);
+            if (pending_status == UCS_OK)
+            {
+                status = UCS_INPROGRESS; //uct_ep_put_zcopy, uct_ep_get_zcopy usually return UCS_INPROGRESS
+                break;
+            }
+            else if (pending_status == UCS_ERR_BUSY)
+            {
+                free(uct_pending_req);
+                uct_pending_req = NULL;
+                continue;
+            }
+            else
+            {
+                free(uct_pending_req);
+                uct_pending_req = NULL;
+                WARN("UCT pending returned unexpected value ,pending_status = %d\n", pending_status);
+                break;
+            }
+        }
+        else
+        {
+            WARN("wrap_uct_ep_zcopy returned unexpected value , status = %d\n", status);
+            break;
+        }
+    }
+    return status;
 }
