@@ -609,7 +609,8 @@ template<typename T>
 struct Apply_PostOp<FuncSumPostDiv<T>, /*EltPerPack=*/1> {
   static constexpr bool IsIdentity = false;
   __device__ static BytePack<sizeof(T)> postOp(FuncSumPostDiv<T> fn, BytePack<sizeof(T)> a) {
-    return toPack<T>(fromPack<T>(a) / fn.divisor);
+    float factor = 1.0f / fn.divisor;
+    return toPack<T>(fromPack<T>(a) * factor);
   }
 };
 
