@@ -1331,45 +1331,8 @@ ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoG
         const char *loadbalancingType = ncclGetEnv("RCCL_PXN_GPU_BALANCE");
         if (loadbalancingType != NULL) {
           INFO(NCCL_ENV, "RCCL_PXN_GPU_BALANCE set by environment to %s.", loadbalancingType);
-          if (strcmp(loadbalancingType, "1") == 0) {   // new GPU Balancing
-            int localChannelId = 0;
-            int round = 0;
-            while (peerRank != (1 ? comm->p2pSchedule[round].sendRank
-                                          : comm->p2pSchedule[round].recvRank)) {
-              round += 1;
-            }
-            uint8_t base = ncclP2pChannelBaseForRound(comm, round);
-            for (int c=0; c < comm->p2pnChannelsPerPeer; c++) {
-              int channel = ncclP2pChannelForPart(comm->p2pnChannels, base, c, comm->p2pnChannelsPerPeer, comm->nNodes);
-              if (channel == channelId) {
-                localChannelId = c;
-              }
-            }
-            INFO(NCCL_INIT|NCCL_NET, "localChannelId=%d, channelId=%d", localChannelId, channelId);
-
-            if(gpus) {     // new GPU Balancing + ncclTopoGetPxnRanks()
-              int* localGpus = NULL;
-              NCCLCHECK(ncclCalloc(&localGpus, comm->topo->nodes[GPU].count));
-              int localGpuCount;
-              NCCLCHECK(ncclTopoGetLocalGpu(comm->topo, netId, &g2, localChannelId, &localGpus, &localGpuCount));
-              for (int lg=0; lg<localGpuCount; lg++) {
-                struct ncclTopoNode* peerGpu = comm->topo->nodes[GPU].nodes+localGpus[lg];
-                if (peerGpu->paths[GPU][g1].type <= PATH_NVL && peerGpu->paths[NET][n].type <= PATH_PXB) {
-                  (*gpus)[(*gpuCount)++] = peerGpu->gpu.rank;
-                }
-              }
-              if(localGpus) {
-                free(localGpus);
-                localGpus = NULL;
-              } 
-            } else {    // new GPU Balancing + netTransport->send/recvSetup() 
-              INFO(NCCL_INIT|NCCL_NET, "p2p : curRank:%d [send to/receive from] peerRank:%d - Channel selection is limited by p2pnChannelsPerPeer %d.", rank, peerRank, comm->p2pnChannelsPerPeer);
-              if (comm->p2pnChannelsPerPeer > 1){  
-                NCCLCHECK(ncclTopoGetLocalGpu(comm->topo, netId, &g2, localChannelId));
-              } else {   // comm->p2pnChannelsPerPeer = 1 
-                NCCLCHECK(ncclTopoGetLocalGpuForPerpeer1(comm->topo, rank, localRank, channelId, &g2));
-              }
-            }
+          if (strcmp(loadbalancingType, "1") == 0) {   // new GPU Balancing + netTransport->send/recvSetup() / ncclTopoGetPxnRanks()
+            NCCLCHECK(ncclTopoGetLocalGpuForGPUBalance(comm->topo, rank, localRank, channelId, &g2));
           } else {   // default
             goto default_loadbalancing;
           }
@@ -1377,6 +1340,7 @@ ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoG
 default_loadbalancing: 
           NCCLCHECK(ncclTopoGetLocalGpu(comm->topo, netId, &g2));
         }
+        
         if (g2 != -1) {
           struct ncclTopoNode* peerGpu = comm->topo->nodes[GPU].nodes+g2;
           if (peerGpu->paths[GPU][g1].type <= PATH_NVL && peerGpu->paths[NET][n].type <= PATH_PXB) {

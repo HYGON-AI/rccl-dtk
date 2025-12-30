@@ -545,7 +545,6 @@ int ncclPxnDisable(struct ncclComm* comm) {
   return pxnDisable;
 }
 
-extern int64_t ncclParamP2pPxnLevel();
 ncclResult_t ncclTopoGetPxnRanks(struct ncclComm* comm, int** intermediateRanks, int* nranks) {
   struct ncclTopoSystem* system = comm->topo;
   *nranks = 0;
@@ -554,68 +553,42 @@ ncclResult_t ncclTopoGetPxnRanks(struct ncclComm* comm, int** intermediateRanks,
 
   int nr = 0;
   int* ranks = NULL;
-  int64_t netId;
-  int proxyRank;
-  int pxnLevel = ncclParamP2pPxnLevel();
-  const char *loadbalancingType = ncclGetEnv("RCCL_PXN_GPU_BALANCE");
-  if (loadbalancingType != NULL) {
-    INFO(NCCL_ENV, "RCCL_PXN_GPU_BALANCE set by environment to %s, and P2P_PXN_LEVEL set by environment to %d.", loadbalancingType, pxnLevel);
-    if (pxnLevel == 2 && strcmp(loadbalancingType, "1") == 0) {   // new GPU Balancing
-      int* gpus = NULL;
-      int gpuCount = 0;
-      for (int rank=0; rank<comm->nRanks; rank++) {
-        if(gpus == NULL) NCCLCHECK(ncclCalloc(&gpus, system->nodes[GPU].count));
-        NCCLCHECK(ncclTopoGetNetDev(comm, comm->rank, NULL, 0, rank, &netId, NULL, &proxyRank, &gpus, &gpuCount));
-        int useGdr;
-        NCCLCHECK(ncclTopoCheckGdr(comm->topo, comm->busId, netId, 1, &useGdr));
-        if (useGdr == 0) continue;
+  for (int rank=0; rank<comm->nRanks; rank++) {
+    int64_t netId;
+    int proxyRank;
 
-        for (int i =0 ; i<gpuCount; i++){
-          proxyRank = gpus[i];
-          if (proxyRank == comm->rank) continue;
-          int found = 0;
-
-          for (int r=0; r<nr; r++) {
-            if (ranks[r] == proxyRank) {
-              found = 1;
-              break;
-            } 
-          }
-
-          if (!found) {
-            NCCLCHECK(ncclRealloc(&ranks, nr, nr+1));
-            ranks[nr++] = proxyRank;
-          }
-        }
-        if(gpus) {
-          free(gpus);
-          gpus = NULL;
-          gpuCount = 0;
-        } 
-      }
-    } else {  // default
-      goto default_loadbalancing;
+    // When the dual-plane detection determines that the streams are on the same plane, skip the proxy and directly continue.
+    if (getenv("RCCL_NET_PLANE") != NULL) {
+      int samePlan = 0;
+      NCCLCHECK(ncclTopoNetPlaneCheck(comm, &samePlan, comm->rank, rank));
+      if (samePlan) continue;
     }
-  } else {  // default
-default_loadbalancing: 
-    for (int rank=0; rank<comm->nRanks; rank++) {
-      NCCLCHECK(ncclTopoGetNetDev(comm, comm->rank, NULL, 0, rank, &netId, NULL, &proxyRank));
-      if (proxyRank == comm->rank) continue;
-      int useGdr;
-      NCCLCHECK(ncclTopoCheckGdr(comm->topo, comm->busId, netId, 1, &useGdr));
-      if (useGdr == 0) continue;
-      int found = 0;
-      for (int r=0; r<nr; r++) {
-        if (ranks[r] == proxyRank) found = 1;
-      }
-      if (!found) {
-        NCCLCHECK(ncclRealloc(&ranks, nr, nr+1));
-        ranks[nr++] = proxyRank;
-      }
+
+    NCCLCHECK(ncclTopoGetNetDev(comm, comm->rank, NULL, 0, rank, &netId, NULL, &proxyRank));
+    if (proxyRank == comm->rank) continue;
+    int useGdr;
+    NCCLCHECK(ncclTopoCheckGdr(comm->topo, comm->busId, netId, 1, &useGdr));
+    if (useGdr == 0) continue;
+    int found = 0;
+    for (int r=0; r<nr; r++) {
+      if (ranks[r] == proxyRank) found = 1;
+    }
+    if (!found) {
+      NCCLCHECK(ncclRealloc(&ranks, nr, nr+1));
+      ranks[nr++] = proxyRank;
     }
   }
   *nranks = nr;
   *intermediateRanks = ranks;
+
+  // INFO LOG
+  char buf[1024];
+  sprintf(buf, "ncclTopoGetPxnRanks - curRank %d : ", comm->rank);
+  for (int i = 0; i < nr; i++) {
+      sprintf(buf + strlen(buf), "%d ", ranks[i]);
+  }
+  INFO(NCCL_INIT|NCCL_NET, "%s", buf);
+
   return ncclSuccess;
 }
 
