@@ -33,6 +33,7 @@ ncclResult_t parseA2a8P(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
 ncclResult_t parseGIOTopos(struct ncclTopoSystem* system, struct ncclTopoGraph* graph);
 ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* graph);
 bool isAllHylink(struct ncclTopoSystem* system);
+bool is4GpuHylink(struct ncclTopoSystem* system);
 bool isHSW(struct ncclTopoSystem* system);
 
 #endif
