@@ -540,6 +540,7 @@ struct ncclComm {
 
   // Monotonic number of bytes (mod 1<<32) consumed per channel. In cudaHost memory.
   uint32_t* workFifoConsumed/*[MAXCHANNELS]*/;
+  uint32_t preWorkFifoConsumed;
   // Last observed value of: min(workFifoConsumed[c] for c < MAXCHANNELS)
   uint32_t workFifoConsumedLeast;
   // Monotonic number of bytes (mod 1<<32) sent to fifo.
