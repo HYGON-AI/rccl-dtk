@@ -411,7 +411,7 @@ struct rccl_float8
     {
 #ifdef rccl_float8_downcast_clipping
         data = rocblas_hip_f8_impl::
-            cast_to_f8<3, 4, float, true /*negative_zero_nan*/, true /*clip*/>(
+            cast_to_f8<3, 4, float, false /*negative_zero_nan*/, false /*clip*/>(
                 v, (rm == rocblas_hip_f8_rounding_mode::stochastic), rng);
 #else // rccl_float8_downcast_clipping
         data = rocblas_hip_f8_impl::
@@ -464,7 +464,7 @@ struct rccl_float8
     explicit inline HIP_HOST_DEVICE operator float() const
 #endif
     {
-        return rocblas_hip_f8_impl::cast_from_f8<3, 4, float, true /*negative_zero_nan*/>(data);
+        return rocblas_hip_f8_impl::cast_from_f8<3, 4, float, false /*negative_zero_nan*/>(data);
     }
 
     // convert to half
@@ -578,7 +578,7 @@ struct rccl_bfloat8
     {
 #ifdef rccl_float8_downcast_clipping
         data = rocblas_hip_f8_impl::
-            cast_to_f8<2, 5, float, true /*negative_zero_nan*/, true /*clip*/>(
+            cast_to_f8<2, 5, float, false /*negative_zero_nan*/, false /*clip*/>(
                 v, (rm == rocblas_hip_f8_rounding_mode::stochastic), rng);
 #else
         data = rocblas_hip_f8_impl::
@@ -631,7 +631,7 @@ struct rccl_bfloat8
     explicit inline HIP_HOST_DEVICE operator float() const
 #endif
     {
-        return rocblas_hip_f8_impl::cast_from_f8<2, 5, float, true /*negative_zero_nan*/>(data);
+        return rocblas_hip_f8_impl::cast_from_f8<2, 5, float, false /*negative_zero_nan*/>(data);
     }
 
     // convert to half
