@@ -734,6 +734,7 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
   NCCLCHECKGOTO(ncclCudaHostCalloc(&comm->workFifoConsumed, MAXCHANNELS), ret, fail);
   ncclCommPushCudaHostFree(comm, comm->workFifoConsumed);
   comm->workFifoProduced = 0;
+  comm->preWorkFifoConsumed = 0;
   comm->workFifoConsumedLeast = 0;
   tmpCommAndChans.comm.workConsumed = comm->workFifoConsumed;
 

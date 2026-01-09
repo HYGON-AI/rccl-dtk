@@ -1199,6 +1199,7 @@ static void waitWorkFifoAvailable(struct ncclComm* comm, uint32_t desiredProduce
         }
       }
     }
+    consumedLeast = comm->preWorkFifoConsumed;
 
     // Compiler only fence to prevent fusion of loops to encourage dense stores.
     __atomic_signal_fence(__ATOMIC_SEQ_CST);
@@ -1613,6 +1614,9 @@ ncclResult_t ncclLaunchFinish(struct ncclComm* comm) {
     // back to us for reclaiming via callbackQueue.
     ncclIntruQueueConstruct(&planner->planQueue);
     cudaStream_t launchStream = planner->streams->stream; // First user stream gets launch
+    if (comm->workFifoProduced - comm->preWorkFifoConsumed > comm->workFifoBytes/8) {
+      comm->preWorkFifoConsumed = comm->workFifoProduced;
+    }
     // Create dependency for deviceStream on launchStream. We know that deviceStream
     // hasn't been modified since launchStream waited on it (in ncclLaunchPrepare),
     // so we can say that launchStream subsumes it.
