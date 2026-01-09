@@ -21,7 +21,7 @@ namespace {
   __device__ __attribute__((noinline)) void runRing(int tid, int nthreads, struct ncclDevWorkColl* work) {
 #endif
     ncclRing *ring = &ncclShmem.channel.ring;
-    volatile int ringIx = ring->index;
+    int ringIx = ring->index;
     const int nranks = ncclShmem.comm.nRanks;
     const int bid = ncclShmem.channelId - work->channelLo;
     ssize_t size;
