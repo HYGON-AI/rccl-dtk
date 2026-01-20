@@ -2194,7 +2194,7 @@ static ncclResult_t hostToDevRedOp(
   return ncclSuccess;
 }
 
-static const int PerPeerChannelsConfig[][6] = {
+static const int PerPeerChannelsConfigGfx936[][6] = {
   // Index: [SingleNodeAlltoAll, SingleNodeGather, SingleNodeScatter, MultiNodesAlltoAll, MultiNodesGather, MultiNodesScatter]
   {2,2,2,1,2,1},    /* 0: 1B-8KB */
   {2,4,4,1,2,1},   /* 1: 16KB   */
@@ -2214,6 +2214,29 @@ static const int PerPeerChannelsConfig[][6] = {
   {16,4,16,1,2,1},  /* 15: 256MB */
   {16,4,16,1,2,1},  /* 16: 512MB */
   {16,4,16,1,2,1},  /* 17: 1GB   */
+  {16,16,16,1,2,1}  /* 18: 2GB   */
+};
+
+static const int PerPeerChannelsConfigGfx938[][6] = {
+  // Index: [SingleNodeAlltoAll, SingleNodeGather, SingleNodeScatter, MultiNodesAlltoAll, MultiNodesGather, MultiNodesScatter]
+  {2,2,2,1,2,1},    /* 0: 1B-8KB */
+  {4,4,2,1,2,1},    /* 1: 16KB   */
+  {4,4,2,1,2,1},    /* 2: 32KB   */
+  {4,4,2,1,2,1},    /* 3: 64KB   */
+  {4,4,4,1,2,1},    /* 4: 128KB  */
+  {4,4,4,1,2,1},    /* 5: 256KB  */
+  {4,4,4,1,2,1},    /* 6: 512KB  */
+  {4,4,4,1,1,1},    /* 7: 1MB    */
+  {4,4,4,1,1,1},    /* 8: 2MB    */
+  {2,4,4,1,2,1},   /* 9: 4MB    */
+  {2,4,4,1,2,1},  /* 10: 8MB   */
+  {2,4,4,1,2,1},  /* 11: 16MB  */
+  {2,4,4,1,2,1},  /* 12: 32MB  */
+  {2,4,4,1,2,1},    /* 13: 64MB  */
+  {16,4,16,1,2,1},  /* 14: 128MB */
+  {16,16,16,1,2,1},  /* 15: 256MB */
+  {16,16,16,1,2,1},  /* 16: 512MB */
+  {16,16,16,1,2,1},  /* 17: 1GB   */
   {16,16,16,1,2,1}  /* 18: 2GB   */
 };
 
@@ -2237,7 +2260,7 @@ static int getP2pPerPeerChannels(struct ncclComm* comm, struct ncclInfo* info, n
       default: return comm->oriP2pnChannelsPerPeer;
     }
   }
-  return PerPeerChannelsConfig[index][arrayIndex];
+  return (comm->gfxVersion == 936 ? PerPeerChannelsConfigGfx936 : PerPeerChannelsConfigGfx938)[index][arrayIndex];
 }
 
 // Converts `info` to a task and adds it to `comm->planner`. The exception is with
@@ -2290,6 +2313,11 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
         default:
           maybeRestore();
           break;
+      }
+      if(comm->gfxVersion == 938 && p2p->bytes >= _128MB && comm->nNodes == 1 && p2p->parentP2pType == P2pAllToAll && comm->oriP2pnChannels > 16) {
+        comm->p2pnChannels = 16;
+      } else if (comm->p2pnChannels != comm->oriP2pnChannels){
+        comm->p2pnChannels = comm->oriP2pnChannels;
       }
     }
     // Mark channels that need pre-connect

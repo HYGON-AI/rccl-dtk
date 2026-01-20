@@ -492,9 +492,11 @@ struct ncclComm {
   int nvlsHeads[MAXCHANNELS];
   // Channels (per peer) for p2p
   int p2pnChannels;
+  int oriP2pnChannels;
   int p2pnChannelsPerPeer;
   int oriP2pnChannelsPerPeer;
   bool autoPerPeerOn;
+  int gfxVersion;
   int minLinkType; // 所有gpu间的最快的链接类型
 
   // Should this comm allocate LL buffers for network P2P connections?
