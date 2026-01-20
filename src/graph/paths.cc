@@ -921,11 +921,8 @@ ncclResult_t ncclTopoComputeP2pChannels(struct ncclComm* comm) {
   comm->p2pnChannelsPerPeer = std::min(comm->p2pnChannelsPerPeer, comm->p2pnChannels);
   comm->oriP2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
   comm->oriP2pnChannels = comm->p2pnChannels;
-  //comm->autoPerPeerOn = (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") || IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938"))&& ncclParamNChannelsPerPeer() == -2 && ncclParamP2pAutoPerPeerTuning() == 1 && isHSW(comm->topo);
-  char* gcn = comm->topo->nodes[GPU].nodes[0].gpu.gcn;
-  if (strncmp(gcn, "gfx", 3) == 0) comm->gfxVersion = (int)strtol(gcn+3, NULL, 10);
-  comm->autoPerPeerOn = (comm->gfxVersion == 936 || comm->gfxVersion == 938) && ncclParamNChannelsPerPeer() == -2 && ncclParamP2pAutoPerPeerTuning() == 1 && isHSW(comm->topo);
-  INFO(NCCL_INIT, "comm->autoPerPeerOn: %d, gfxVersion: %d, comm->p2pnChannels: %d, comm->p2pnChannelsPerPeer: %d", comm->autoPerPeerOn, comm->gfxVersion, comm->p2pnChannels, comm->p2pnChannelsPerPeer);
+  comm->autoPerPeerOn = (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") || IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938")) && ncclParamNChannelsPerPeer() == -2 && ncclParamP2pAutoPerPeerTuning() == 1 && isHSW(comm->topo);
+  INFO(NCCL_INIT, "comm->autoPerPeerOn: %d, comm->p2pnChannels: %d, comm->p2pnChannelsPerPeer: %d", comm->autoPerPeerOn, comm->p2pnChannels, comm->p2pnChannelsPerPeer);
   // Init channels that weren't used so far
   for (int c=comm->nChannels; c<std::max(comm->nChannels, comm->p2pnChannels); c++) NCCLCHECK(initChannel(comm, c));
 
