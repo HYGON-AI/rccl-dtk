@@ -2658,7 +2658,7 @@ bool is4GpuHylink(){
       hyLinkMaxGroupId = linkState;
     } 
   }
-  if (gpuCount/hyLinkMaxGroupId == 4) {
+  if (hyLinkMaxGroupId != 0 && gpuCount/hyLinkMaxGroupId == 4) {
     return true;
   } else {
     return false;
