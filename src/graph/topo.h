@@ -263,7 +263,7 @@ static ncclResult_t ncclTopoIdToNetDev(struct ncclTopoSystem* system, int64_t id
 static float ncclTopoXGMISpeed(const char* gcn) {
   if (IsArchMatch(gcn, "gfx90a"))
     return MI200_XGMI_WIDTH;
-  else if (IsArchMatch(gcn, "gfx936"))
+  else if (IsArchMatch(gcn, "gfx93"))
     return GFX936_XGMI_WIDTH;
   else if (IsArchMatch(gcn, "gfx94"))
     return GFX94X_XGMI_WIDTH;
