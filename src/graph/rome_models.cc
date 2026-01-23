@@ -2691,7 +2691,7 @@ ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
   const int ncpus = system->nodes[CPU].count;
   const int nnets = system->nodes[NET].count;
     
-  if (IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx936")){
+  if (IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx93")){
     if (isHylinkMixPCIe(system)) {
       system->tuning = 3;
     } else {
@@ -2701,14 +2701,11 @@ ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
     system->tuning = 2;
   else
     return ncclSuccess;
-  
-  if (ngpus == 8 && isHSW(system)){
-    if (system->nHosts == 1){
+
+  if (ngpus == 8 && system->nHosts == 1){
+    if (isHSW(system)) {
       NCCLCHECK(parseGraph(hygonBWSingleNodeModel.ringBase, system, graph, NULL, NULL, false));
-    }
-  }
-  if (ngpus == 8 && is4GpuHylink()){
-    if (system->nHosts == 1){
+    } else if (is4GpuHylink()) {
       NCCLCHECK(parseGraph(hygonBWSingleNode4hylink8gpuModel.ringBase, system, graph, NULL, NULL, false));
     }
   }
