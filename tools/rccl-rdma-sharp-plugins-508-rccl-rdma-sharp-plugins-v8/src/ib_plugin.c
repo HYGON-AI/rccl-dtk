@@ -50,7 +50,7 @@ NCCL_PARAM(IbArThreshold, "IB_AR_THRESHOLD", 8192);
 NCCL_PARAM(IbPciRelaxedOrdering, "IB_PCI_RELAXED_ORDERING", /**2*/0);
 NCCL_PARAM(IbFifoTc, "IB_FIFO_TC", 0);
 NCCL_PARAM(IbAsyncEvents,"IB_RETURN_ASYNC_EVENTS",1);
-NCCL_PARAM(IbEceEnable,"IB_ECE_ENABLE",1);
+NCCL_PARAM(IbEceEnable,"IB_ECE_ENABLE",0); /* 508 CS cannot support ece */
 
 static ncclResult_t ncclIbStatsCheckFatalCount(struct ncclIbStats* stat, const char* funcName) {
   if (ncclParamIbAsyncEvents() && __atomic_load_n(&stat->fatalErrorCount, __ATOMIC_RELAXED)) {
@@ -317,7 +317,7 @@ static ncclResult_t ncclIbGetGidIndex(struct ibv_context *context, uint8_t portN
 
 NCCL_PARAM(IbDisable, "IBEXT_DISABLE", 0);
 NCCL_PARAM(IbMergeVfs, "IB_MERGE_VFS", 1);
-NCCL_PARAM(IbMergeNics, "IB_MERGE_NICS", 1);
+NCCL_PARAM(IbMergeNics, "IB_MERGE_NICS", 0);
 
 extern ncclDebugLogger_t pluginLogFunction;
 
