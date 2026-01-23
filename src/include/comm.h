@@ -492,6 +492,7 @@ struct ncclComm {
   int nvlsHeads[MAXCHANNELS];
   // Channels (per peer) for p2p
   int p2pnChannels;
+  int oriP2pnChannels;
   int p2pnChannelsPerPeer;
   int oriP2pnChannelsPerPeer;
   bool autoPerPeerOn;

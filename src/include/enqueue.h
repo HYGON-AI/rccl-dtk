@@ -18,6 +18,7 @@
 #define NCCL_BYTES_ALIGNMENT 16
 #define _32KB  (1 << 15)   /*  32KiB */
 #define _2MB   (1 << 21)   /*   2MiB */
+#define _128MB (1 << 27)   /* 128MiB */
 
 ncclResult_t ncclInitKernelsForDevice(int cudaArch, size_t* maxStackSize);
 ncclResult_t ncclEnqueueCheck(struct ncclInfo* info);
