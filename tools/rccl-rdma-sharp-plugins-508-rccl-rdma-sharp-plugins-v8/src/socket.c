@@ -15,6 +15,9 @@
 #include <net/if.h>
 #include "param.h"
 
+RCCL_PARAM(SocketReuseAddr, "SOCKET_REUSEADDR", 0);
+RCCL_PARAM(SocketLinger, "SOCKET_LINGER", -1);
+
 static ncclResult_t socketProgressOpt(int op, struct ncclSocket* sock, void* ptr, int size, int* offset, int block, int* closed) {
   int bytes = 0;
   *closed = 0;
@@ -121,6 +124,9 @@ static int findInterfaces(const char* prefixList, char* names, union ncclSocketA
     int family = interface->ifa_addr->sa_family;
     if (family != AF_INET && family != AF_INET6)
       continue;
+
+    /* Only consider running interfaces, i.e UP and physically attached. */
+    if (!(interface->ifa_flags & IFF_RUNNING)) continue;
 
     TRACE(NCCL_INIT|NCCL_NET,"Found interface %s:%s", interface->ifa_name, ncclSocketToString((union ncclSocketAddress *) interface->ifa_addr, line, 1));
 
@@ -733,6 +739,16 @@ ncclResult_t ncclSocketInit(struct ncclSocket* sock, union ncclSocketAddress* ad
       ret = ncclSystemError;
       goto fail;
     }
+      // [RCCL] Runtime socket options
+      if (rcclParamSocketReuseAddr()) {
+        int opt = 1;
+        SYSCHECK(setsockopt(sock->fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)), "setsockopt");
+      }
+      int lingerParam = (int)rcclParamSocketLinger();
+      if (lingerParam > -1) {
+        struct linger linger_opt = { 1, lingerParam };
+        SYSCHECK(setsockopt(sock->fd, SOL_SOCKET, SO_LINGER, &linger_opt, sizeof(linger_opt)), "setsockopt");
+      }
   } else {
     memset(&sock->addr, 0, sizeof(union ncclSocketAddress));
   }

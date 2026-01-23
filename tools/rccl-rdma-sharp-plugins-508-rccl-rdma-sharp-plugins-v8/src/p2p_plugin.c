@@ -87,7 +87,7 @@ static int nccl_p2p_is_uct_plugin(nccl_p2p_plugin_t plugin) {
 
 static void pluginSetup()
 {
-  p2p_plugin = NCCL_P2P_UCX/**IB*/;
+  p2p_plugin = NCCL_P2P_IB;
   const char *plugin_path = get_plugin_lib_path();
   if (plugin_path != NULL) {
     INFO(NCCL_INIT|NCCL_NET, "Plugin Path : %s", plugin_path);;

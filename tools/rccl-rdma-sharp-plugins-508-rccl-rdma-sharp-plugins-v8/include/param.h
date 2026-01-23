@@ -26,4 +26,18 @@ void ncclLoadParam(char const* env, int64_t deftVal, int64_t uninitialized, int6
     return cache; \
   }
 
+#define RCCL_PARAM_DECLARE(name) \
+int64_t rcclParam##name()
+
+#define RCCL_PARAM(name, env, deftVal) \
+pthread_mutex_t rcclParamMutex##name = PTHREAD_MUTEX_INITIALIZER; \
+int64_t rcclParam##name() { \
+    static_assert(deftVal != INT64_MIN, "default value cannot be the uninitialized value."); \
+    static int64_t cache = INT64_MIN; \
+    if (__builtin_expect(__atomic_load_n(&cache, __ATOMIC_RELAXED) == INT64_MIN, false)) { \
+      ncclLoadParam("RCCL_" env, deftVal, INT64_MIN, &cache); \
+    } \
+    return cache; \
+  }
+
 #endif
