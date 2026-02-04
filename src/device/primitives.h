@@ -32,7 +32,6 @@
       __hip_atomic_fetch_add(barriers, 1, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_WORKGROUP); \
       int spins = 0; \
       int rate_limit = 50; \
-      __THREAD_FENCE; \
       while (__hip_atomic_load(barriers, __ATOMIC_ACQUIRE, __HIP_MEMORY_SCOPE_WORKGROUP) < barrier_next) { \
         spins++; \
         if (spins == NCCL_SPINS_BEFORE_CHECK_ABORT) { \
@@ -49,6 +48,7 @@
         __builtin_amdgcn_s_sleep(1); \
       } \
       __asm__ __volatile__("s_wakeup"); \
+      __THREAD_FENCE; \
     } \
   } \
 } while (0)
