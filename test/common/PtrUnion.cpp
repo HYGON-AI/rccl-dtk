@@ -380,7 +380,7 @@ namespace RcclUnitTesting
       case ncclFloat64:
         ERROR("Expected output: %lf.  Actual output: %lf at index %lu\n", expected.F8[idx], F8[idx], idx); break;
       case ncclFp8E5M2:
-        ERROR("Expected output: %f(%d).  Actual output: %f(%d) at index %lu tolerance %d\n", (float)expected.B1[idx], expected.B1[idx], (float)B1[idx], B1[idx], idx, tolerance); break;
+        ERROR("Expected output: %f(%d).  Actual output: %f(%d) at index %lu tolerance %d\n", (float)expected.B1[idx], (int)expected.B1[idx], (float)B1[idx], (int)B1[idx], idx, tolerance); break;
       case ncclBfloat16:
         ERROR("Expected output: %f.  Actual output: %f at index %lu\n", (float)expected.B2[idx], (float)B2[idx], idx); break;
       default:
