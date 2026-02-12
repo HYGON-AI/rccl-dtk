@@ -72,6 +72,19 @@ extern const char* funcNames[];
   #define NCCL_CUDA_ARCH_FAMILY_SPECIFIC 0
 #endif
 
+#if defined(__HIP_DEVICE_COMPILE__) && !defined(__x86_64__)
+  #define DEVICE_PRINTF(fmt, ...)
+  #define DEVICE_ASSERT(expr)                                               \
+  do {                                                                      \
+    if (__builtin_expect(!(expr), 0)) {                                     \
+      __builtin_trap();                                                     \
+    }                                                                       \
+  } while (0)
+#else
+  #define DEVICE_PRINTF(fmt, ...) printf(fmt, ##__VA_ARGS__)
+  #define DEVICE_ASSERT(expr) assert((expr))
+#endif
+
 #include "net_device.h"
 
 enum ncclDevRedOp_t {
