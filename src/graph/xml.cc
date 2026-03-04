@@ -815,12 +815,16 @@ ncclResult_t ncclTopoGetXmlFromGpu(struct ncclXmlNode* pciNode, uint32_t rocmDev
 
     NCCLCHECK(rocm_smi_dev_xhcl_link_number_get(rocmDev, &linkNum));
     for (int j = 0; j < linkNum; j++) {
+      bool isSkip = false;
       NCCLCHECK(rocm_smi_dev_xhcl_link_state_get(rocmDev, j, &linkState));
       if (linkState == 0) {
         continue;
       }
 
-      NCCLCHECK(rocm_smi_dev_xhcl_link_remote_bdfid_get(rocmDev, j, &pciBdf));
+      NCCLCHECK(rocm_smi_dev_xhcl_link_remote_bdfid_get(rocmDev, j, &pciBdf, &isSkip));
+      if (isSkip) {
+        continue;
+      }
       char busIdStr[] = "00000000:00:00.0";
       snprintf(busIdStr, sizeof(busIdStr), "%04lx:%02lx:%02lx.%01lx", (pciBdf) >> 32, (pciBdf & 0xff00) >> 8, (pciBdf & 0xf8) >> 3, (pciBdf & 0x7));
       char lowerId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE];

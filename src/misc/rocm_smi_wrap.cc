@@ -213,8 +213,14 @@ ncclResult_t rocm_smi_dev_xhcl_link_state_get(uint32_t deviceIndex, uint32_t lin
   return ncclSuccess;
 }
 
-ncclResult_t rocm_smi_dev_xhcl_link_remote_bdfid_get(uint32_t deviceIndex, uint32_t linkId, uint64_t *pciBusId) {
-  ROCMSMICHECK(rsmi_dev_xhcl_link_remote_bdfid_get(deviceIndex, linkId, pciBusId));
+ncclResult_t rocm_smi_dev_xhcl_link_remote_bdfid_get(uint32_t deviceIndex, uint32_t linkId, uint64_t *pciBusId, bool *isSkip) {
+  if (RSMI_STATUS_SUCCESS != rsmi_dev_xhcl_link_remote_bdfid_get(deviceIndex, linkId, pciBusId)) {
+    WARN("rsmi_dev_xhcl_link_remote_bdfid_get failed. Use 0 for pciBusId and true for isSkip.");
+    if (isSkip) {
+      *pciBusId = 0;
+      *isSkip = true;
+    }
+  }
   return ncclSuccess;
 }
 
