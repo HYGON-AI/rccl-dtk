@@ -326,6 +326,7 @@ struct ncclProxyConnection {
   struct ncclCollNetSharedRes* collNet;
   int needsProxyProgress;
   int channelId;
+  int reqMemType;
   int resMemType;
   int connIndex;
   struct ncclComm* comm;

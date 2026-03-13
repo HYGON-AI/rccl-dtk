@@ -17,6 +17,7 @@ build_release=true
 build_static=false
 build_tests=false
 build_verbose=false
+build_fast=false
 clean_build=true
 collective_trace=true
 enable_ninja=""
@@ -100,7 +101,7 @@ while true; do
          --disable-msccl-kernel)     msccl_kernel_enabled=false;                                                                       shift ;;
          --disable-mscclpp)          mscclpp_enabled=false;                                                                            shift ;;
          --disable-roctx)            roctx_enabled=false;                                                                              shift ;;
-    -f | --fast)                     build_local_gpu_only=true; collective_trace=false; msccl_kernel_enabled=false;                    shift ;;
+    -f | --fast)                     build_local_gpu_only=true; collective_trace=false; msccl_kernel_enabled=false; build_fast=true;   shift ;;
     -h | --help)                     display_help;                                                                                     exit 0 ;;
     -i | --install)                  install_library=true;                                                                             shift ;;
     -j | --jobs)                     num_parallel_jobs=${2};                                                                           shift 2 ;;
@@ -401,6 +402,12 @@ cmake_common_options="${cmake_common_options} -DROCM_PATH=${ROCM_PATH} ${enable_
 # Build RCCL-UnitTests, if enabled
 if [[ "${build_tests}" == true ]] || ([[ "${run_tests}" == true ]] && [[ ! -x ./test/rccl-UnitTests ]]); then
     cmake_common_options="${cmake_common_options} -DBUILD_TESTS=ON"
+fi
+
+# Build fast
+ONLY_FUNCS=""
+if [[ "${build_fast}" == true ]]; then
+    ONLY_FUNCS="AllReduce * * Sum f32 |Reduce * * Sum f32 |ReduceScatter * * Sum f32 |Broadcast |SendRecv |AllGather"
 fi
 
 # Initiate RCCL CMake

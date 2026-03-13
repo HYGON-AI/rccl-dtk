@@ -12,6 +12,8 @@
 #include "timer.h"
 #include "transport.h"
 
+extern bool isHswInterConnect(struct ncclPeerInfo* info1, struct ncclPeerInfo* info2);
+
 struct ncclTransport* ncclTransports[NTRANSPORTS] = {
   &p2pTransport,
   &shmTransport,
@@ -33,6 +35,8 @@ static ncclResult_t selectTransport(struct ncclComm* comm, struct ncclTopoGraph*
   }
   bool xgmi;
   NCCLCHECK(ncclTopoGetLinkType(comm->topo, myInfo->cudaDev, peerInfo->cudaDev, &xgmi));
+  if(false == xgmi)
+    xgmi = isHswInterConnect(myInfo, peerInfo);
 
   for (int t=0; t<NTRANSPORTS; t++) {
     if (graph == NULL && connIndex == NCCL_CONN_IDX_P2P_NET && (t == TRANSPORT_SHM || (!xgmi && t == TRANSPORT_P2P))) continue;

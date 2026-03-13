@@ -410,6 +410,7 @@ struct ncclPeerInfo {
   // MNNVL support
   nvmlGpuFabricInfoV_t fabricInfo;
   int cuMemSupport;
+  char uniqueId[32];
 };
 
 struct ncclComm {

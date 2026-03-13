@@ -826,11 +826,15 @@ static void showVersion() {
 }
 
 static ncclResult_t fillInfo(struct ncclComm* comm, struct ncclPeerInfo* info, uint64_t commHash) {
+  hipUUID uuid;
   info->rank = comm->rank;
   info->cudaDev = comm->cudaDev;
   info->nvmlDev = comm->nvmlDev;
   info->hostHash=getHostHash()+commHash;
   info->pidHash=getPidHash()+commHash;
+  CUDACHECK(hipDeviceGetUuid(&uuid, info->cudaDev));
+  memset(info->uniqueId, 0, 32);
+  memcpy(info->uniqueId, uuid.bytes, 16); // for hb
   info->cuMemSupport = ncclCuMemEnable();
 
   // Get the device MAJOR:MINOR of /dev/shm so we can use that
@@ -927,7 +931,7 @@ static ncclResult_t computeBuffSizes(struct ncclComm* comm) {
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
     comm->buffSizes[p] = envs[p] != -2 ? envs[p] : defaults[p];
   }
-  if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && comm->nNodes > 1) comm->buffSizes[NCCL_PROTO_SIMPLE] = (1 << 20) ;
+  // if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && comm->nNodes > 1) comm->buffSizes[NCCL_PROTO_SIMPLE] = (1 << 20) ; // smaller for hb internode trans 
   if (comm->nNodes > 1) comm->p2pChunkSize = ncclParamP2pNetChunkSize();
   else if (ncclTopoPathAllNVLink(comm->topo)) comm->p2pChunkSize = ncclParamP2pNvlChunkSize();
   else comm->p2pChunkSize = ncclParamP2pPciChunkSize();
@@ -1673,7 +1677,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   // set Simple nChannels to ncclParamCollSimpleChannels() when gcn=gfx936 or multi nodes on gfx938
   if(IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") || 
     ((IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938")) && comm->nNodes > 1)) {
-    int CollSimpleChannels = 16;
+    int CollSimpleChannels = 32; // TBC opt , 16;
     if(ncclParamCollSimpleChannels() != -2) CollSimpleChannels = ncclParamCollSimpleChannels();
     if(CollSimpleChannels <= comm->nChannels && CollSimpleChannels > 0) comm->CollSimpleChannels = CollSimpleChannels;
   }

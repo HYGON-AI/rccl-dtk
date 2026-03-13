@@ -131,7 +131,7 @@ endif()
 
 # Set CMAKE flags
 #==================================================================================================
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mllvm -disable-speculative-loop-unswitch=true")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mllvm -disable-speculative-loop-unswitch=true")
 set(CMAKE_INSTALL_PREFIX "${ROCM_PATH}" CACHE PATH "")
 set(CMAKE_CXX_STANDARD   14)   # We use C++14 features, this will add compile option: -std=c++14
 set(CMAKE_CXX_EXTENSIONS OFF)  # Without this line, it will add -std=gnu++14 instead, which has some issues.
