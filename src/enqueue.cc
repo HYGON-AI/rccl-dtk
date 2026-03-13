@@ -1317,12 +1317,7 @@ static ncclResult_t uploadProxyOps(struct ncclComm* comm, struct ncclKernelPlan*
     NCCLCHECK(ncclProxySaveOp(comm, op, nullptr));
     op->opCount = oldId; // Restore for next uploadProxyOps()
 
-    struct ncclProxyOp* opNext = op->enqNext;
-    if (!plan->persistent) {
-      // Non-persistent kernels upload ops only once so can be free'd here.
-      ncclMemoryPoolFree(&comm->memPool_ncclProxyOp, op);
-    }
-    op = opNext;
+    op = op->enqNext;
   }
 
   // Erase proxyOpQueue since all ops were free'd back to mempool.
@@ -1358,21 +1353,30 @@ static ncclResult_t reclaimPlan(struct ncclComm* comm, struct ncclCommCallback* 
   struct ncclKernelPlan* plan = (struct ncclKernelPlan*)me; // cast from first member `reclaim`
   if (plan->persistent) {
     comm->persistentRefs -= 1;
-    NCCLCHECK(ncclCudaFree(plan->workBufPersistent));
-    struct ncclProxyOp* q = ncclIntruQueueHead(&plan->proxyOpQueue);
-    while (q != nullptr) {
-      struct ncclProxyOp* q1 = q->enqNext;
-      ncclMemoryPoolFree(&comm->memPool_ncclProxyOp, q);
-      q = q1;
+    if (plan->workStorageType == ncclDevWorkStorageTypePersistent) {
+      cudaStreamCaptureMode mode = cudaStreamCaptureModeRelaxed;
+      CUDACHECK(cudaThreadExchangeStreamCaptureMode(&mode));
+      CUDACHECK(cudaFree(plan->workBufPersistent));
+      CUDACHECK(cudaThreadExchangeStreamCaptureMode(&mode));
     }
-    ncclResult_t result = ncclSuccess;
-    while (!ncclIntruQueueEmpty(&plan->cleanupQueue)) {
-      struct ncclCommCallback* cb = ncclIntruQueueDequeue(&plan->cleanupQueue);
-      ncclResult_t res1 = cb->fn(comm, cb); // Expect to reclaim memory of cb
-      if (res1 != ncclSuccess) result = res1;
-    }
-    NCCLCHECK(result);
   }
+
+  // Free proxy ops
+  struct ncclProxyOp* q = ncclIntruQueueHead(&plan->proxyOpQueue);
+  while (q != nullptr) {
+    struct ncclProxyOp* q1 = q->enqNext;
+    ncclMemoryPoolFree(&comm->memPool_ncclProxyOp, q);
+    q = q1;
+  }
+  // Run other free callbacks
+  ncclResult_t result = ncclSuccess;
+  while (!ncclIntruQueueEmpty(&plan->cleanupQueue)) {
+    struct ncclCommCallback* cb = ncclIntruQueueDequeue(&plan->cleanupQueue);
+    ncclResult_t res1 = cb->fn(comm, cb); // Expect to reclaim memory of cb
+    if (res1 != ncclSuccess) result = res1;
+  }
+  NCCLCHECK(result);
+  // Free plan struct
   ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
   return ncclSuccess;
 }
