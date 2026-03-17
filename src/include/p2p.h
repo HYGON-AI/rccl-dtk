@@ -43,4 +43,8 @@ ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, ncclIpcDesc *ipcDesc, v
 ncclResult_t ncclP2pFreeShareableBuffer(ncclIpcDesc *ipcDesc);
 ncclResult_t ncclP2pImportShareableBuffer(struct ncclComm *comm, int tpPeer, size_t size, ncclIpcDesc *ipcDesc, void **devMemPtr);
 
+#ifdef RSMI_SUPPORT_SUPER_NODE
+bool isUniqueidInTopo(const char *uniqueId);
+#endif
+
 #endif

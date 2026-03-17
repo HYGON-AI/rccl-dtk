@@ -36,6 +36,7 @@ option(TRACE                                   "Enable additional tracing"      
 option(SUPPORT_XHCL_TOPO                       "Support Detect Hyswitch"                       ON)
 option(SUPPORT_PCIE_CHANNEL                    "Support PCIE CHANNEL"                          ON)
 option(SUPPORT_PLUGINS_SHCA                    "Support PLUGINS SHCA"                          OFF)
+option(SUPPORT_SUPER_NODE                      "Support SUPER NODE"                            OFF)
 # Default GPU architectures to build
 #==================================================================================================
 set(DEFAULT_GPUS
@@ -131,7 +132,7 @@ endif()
 
 # Set CMAKE flags
 #==================================================================================================
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mllvm -disable-speculative-loop-unswitch=true")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mllvm -disable-speculative-loop-unswitch=true")
 set(CMAKE_INSTALL_PREFIX "${ROCM_PATH}" CACHE PATH "")
 set(CMAKE_CXX_STANDARD   14)   # We use C++14 features, this will add compile option: -std=c++14
 set(CMAKE_CXX_EXTENSIONS OFF)  # Without this line, it will add -std=gnu++14 instead, which has some issues.
@@ -827,6 +828,9 @@ if (SUPPORT_XHCL_TOPO)
 endif()
 if (SUPPORT_PCIE_CHANNEL)
   target_compile_definitions(rccl PRIVATE SUPPORT_PCIE_CHANNEL)
+endif()
+if (SUPPORT_SUPER_NODE)
+  target_compile_definitions(rccl PRIVATE RSMI_SUPPORT_SUPER_NODE)
 endif()
 
 ## Set RCCL linked library directories

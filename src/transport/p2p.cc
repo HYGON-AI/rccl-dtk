@@ -13,7 +13,7 @@
 #include "graph/topo.h"
 #include "p2p.h"
 #include "transport.h"
-#include "hsa_ext_amd.h"
+#include "hsa/hsa_ext_amd.h"
 
 enum p2pType { P2P_DIRECT, P2P_INTERMEDIATE, P2P_IPC, P2P_CUMEM };
 enum p2pMemType {
@@ -99,7 +99,6 @@ struct devAgentInfo {
 #include <sys/types.h>
 RCCL_PARAM(CollXHCLChannelNum, "COLL_XHCL_CHANNEL_NUM", MAXCHANNELS);
 RCCL_PARAM(P2pXHCLChannelNum, "P2P_XHCL_CHANNEL_NUM", MAXCHANNELS);
-RCCL_PARAM(ForceInternodeP2P, "FORCE_INTERNODE_P2P", 0);
 
 static int getCollXhclChannelNum(struct ncclComm* comm) {
   // Do not use extend pcie mem channel for mult nodes and only pcie link
@@ -141,78 +140,47 @@ static int busIdToCudaDev(int64_t busId) {
   return -1;
 }
 
+#ifdef RSMI_SUPPORT_SUPER_NODE
 pthread_mutex_t topoLock = PTHREAD_MUTEX_INITIALIZER;
 static bool topoInited = false;
 static char topoNet[32*1024];
 
-static bool isForceInternodeP2p() {
-  return rcclParamForceInternodeP2P();
-}
-
-bool isUniqueidInTopo(char *uniqueId) {
+bool isUniqueidInTopo(const char *uniqueId) {
   int sz = 0, ofs = 0, total = 32*1024 - 1;
   
+  if (false == __atomic_load_n(&topoInited, __ATOMIC_ACQUIRE)) {
+    pthread_mutex_lock(&topoLock);
+    if(false == __atomic_load_n(&topoInited, __ATOMIC_ACQUIRE)) {
+      memset(topoNet, 0, 32*1024);
+      int fd = open("/sys/class/hsd/hsd/link_topo", O_RDONLY);
+      if (fd > 0) {
+        while(1){
+          sz = read(fd, topoNet + ofs, total);
+          if(sz == 0 || sz < 0)
+            break;
+          if(sz > 0){
+            ofs += sz;
+            total -= sz;
+          }
+        }
+        close(fd);
+      }
+      __atomic_store_n(&topoInited, true, __ATOMIC_RELEASE);
+    }
+    pthread_mutex_unlock(&topoLock);
+  }
+
   if (true == __atomic_load_n(&topoInited, __ATOMIC_ACQUIRE)) {
     if(nullptr != strstr(topoNet, uniqueId)){
-      INFO(NCCL_ALL,"uniqueId %s in global topo!", uniqueId);
       return true;
     }else{
-      INFO(NCCL_ALL,"uniqueId %s not in global topo!", uniqueId);
+      INFO(NCCL_P2P,"uniqueId %s not in global topo!", uniqueId);
       return false;
     }
   }
-  pthread_mutex_lock(&topoLock);
-  if(false == __atomic_load_n(&topoInited, __ATOMIC_ACQUIRE)) {
-    memset(topoNet, 0, 32*1024);
-    int fd = open("/sys/class/hsd/hsd/link_topo", O_RDONLY);
-    if (fd > 0) {
-      while(1){
-        sz = read(fd, topoNet + ofs, total);
-        if(sz == 0 || sz < 0)
-          break;
-        if(sz > 0){
-          ofs += sz;
-          total -= sz;
-        }
-      }
-      close(fd);
-    }
-    
-    INFO(NCCL_ALL,"topo have read %d bytes!", ofs);
-    
-    __atomic_store_n(&topoInited, true, __ATOMIC_RELEASE);
-  }
-  pthread_mutex_unlock(&topoLock);
-  
-  if(nullptr != strstr(topoNet, uniqueId)){
-    INFO(NCCL_ALL,"uniqueId %s in global topo!", uniqueId);
-    return true;
-  }else{
-    INFO(NCCL_ALL,"uniqueId %s not in global topo!", uniqueId);
-    return false;
-  }
 }
 
-bool isHswInterConnect(struct ncclPeerInfo* info1, struct ncclPeerInfo* info2)
-{
-  if (info1->hostHash == info2->hostHash)
-    return false;
-  
-  if (isForceInternodeP2p()) { // just for test
-    INFO(NCCL_ALL, "p2pCanConnect force p2p!");
-    return true;
-  }
-
-  if (isUniqueidInTopo(info1->uniqueId) && isUniqueidInTopo(info2->uniqueId)) {
-    INFO(NCCL_ALL, "%s and %s is interconnected!", info1->uniqueId, info2->uniqueId);
-    return true;
-  }
-  
-  return false;
-}
-
-static hsa_status_t iterateAgentCallback(hsa_agent_t agent, void* data) 
-{
+static hsa_status_t iterateAgentCallback(hsa_agent_t agent, void* data) {
   struct devAgentInfo *agentInfo = (struct devAgentInfo *)data;
   hsa_status_t status;
   uint32_t hsaPciBdfId = 0;
@@ -246,8 +214,7 @@ static hsa_status_t iterateAgentCallback(hsa_agent_t agent, void* data)
   return HSA_STATUS_SUCCESS;
 }
 
-static ncclResult_t getAgent(struct devAgentInfo *agentInfo)
-{
+static ncclResult_t getAgent(struct devAgentInfo *agentInfo) {
   if (hsa_iterate_agents(iterateAgentCallback, agentInfo) != HSA_STATUS_SUCCESS) {
     WARN("cudaDev:%d bdf:0x%lx fail to iterate hsa agent", agentInfo->cudaDev, agentInfo->busId);
     return ncclInternalError;
@@ -256,8 +223,7 @@ static ncclResult_t getAgent(struct devAgentInfo *agentInfo)
   return ncclSuccess;
 }
 
-static ncclResult_t getDevAgent(int cudaDev, hsa_agent_t *agent)
-{
+static ncclResult_t getDevAgent(int cudaDev, hsa_agent_t *agent) {
   struct devAgentInfo agentInfo = { 0 };
   ncclResult_t ret = ncclSuccess;
   
@@ -271,6 +237,21 @@ static ncclResult_t getDevAgent(int cudaDev, hsa_agent_t *agent)
     *agent = agentInfo.hsaAgent;
     return ncclSuccess;
   }
+}
+#endif
+
+bool isHswInterConnect(struct ncclPeerInfo* info1, struct ncclPeerInfo* info2) {
+#ifdef RSMI_SUPPORT_SUPER_NODE
+  if (info1->hostHash == info2->hostHash)
+    return false;
+
+  if (isUniqueidInTopo(info1->uniqueId) && isUniqueidInTopo(info2->uniqueId)) {
+    return true;
+  }
+  
+  INFO(NCCL_P2P, "rank %d uniqueId: %s and rank %d uniqueId: %s is not interconnected!", info1->rank, info1->uniqueId, info2->rank, info2->uniqueId);
+#endif
+  return false;
 }
 
 // CE memcpy support
@@ -291,8 +272,6 @@ ncclResult_t p2pCanConnect(int* ret, struct ncclTopoSystem* topo, struct ncclTop
   }
   if(info1->hostHash != info2->hostHash) {
     if(true == isHswInterConnect(info1, info2)) {
-      INFO(NCCL_ALL, "p2pCanConnect peer1 hostHash 0x%lx shmDev 0x%lx, peer2 hostHash 0x%lx,shmDev 0x%lx", 
-                    info1->hostHash,info1->shmDev, info2->hostHash, info2->shmDev);
       *ret = 1;
       return ncclSuccess;
     } 
@@ -489,6 +468,7 @@ ncclResult_t ncclP2pImportShareableBuffer(struct ncclComm *comm, int tpPeer, siz
   return ncclSuccess;
 }
 
+#ifdef RSMI_SUPPORT_SUPER_NODE
 ncclResult_t ncclP2pExportInterNodeBuffer(void *ptr, size_t size, uint64_t *paList) {
   hsa_status_t ret;
   
@@ -498,7 +478,7 @@ ncclResult_t ncclP2pExportInterNodeBuffer(void *ptr, size_t size, uint64_t *paLi
     return ncclInternalError;
   }
   
-  INFO(NCCL_P2P, "export info 0x%lx 0x%lx", paList[0], paList[1]);
+  INFO(NCCL_P2P, "export InterNodeBuffer info 0x%lx 0x%lx", paList[0], paList[1]);
   
   return ncclSuccess;
 }
@@ -511,8 +491,6 @@ ncclResult_t ncclP2pImportInterNodeBuffer(uint64_t *paList, int cudaDev, void **
     WARN("failed to get % device agent", cudaDev);
     return ncclInternalError;
   }
-
-  INFO(NCCL_P2P, "import start 0x%lx, size 0x%lx", paList[0], paList[1]);
   
   ret = hsa_ext_rpc_memory_attach((hsa_ext_rpc_memory_t*)paList, 1, &agent, ptr);
   if(ret != HSA_STATUS_SUCCESS) {
@@ -522,6 +500,7 @@ ncclResult_t ncclP2pImportInterNodeBuffer(uint64_t *paList, int cudaDev, void **
     return ncclInternalError;
   }
   
+  INFO(NCCL_P2P, "import InterNodeBuffer start 0x%lx, size 0x%lx", paList[0], paList[1]);
   return ncclSuccess;
 }
 
@@ -536,6 +515,7 @@ ncclResult_t ncclP2pFreeInterNodeBuffer(void *ptr) {
   
   return ncclSuccess;
 }
+#endif
 
 // Setting this to non zero causes P2P to use Reads rather than Writes
 NCCL_PARAM(P2pReadEnable, "P2P_READ_ENABLE", -2);
@@ -552,7 +532,6 @@ static ncclResult_t p2pGetInfo(struct ncclTopoSystem* topo, struct ncclPeerInfo*
     *read = 0; // don't use read, use write default
     p2p = 1;
     *intermediateRank = -1;
-    INFO(NCCL_ALL, "p2pGetInfo peer%d to peer%d read disable", info1->rank,info2->rank);
   } else {
     NCCLCHECK(ncclTopoCheckP2p(topo, info1->busId, info2->busId, &p2p, read, intermediateRank));
   }
@@ -603,8 +582,7 @@ static ncclResult_t p2pMap(struct ncclComm *comm, struct ncclProxyConnector* pro
 }
 
 static ncclResult_t trayMap(struct ncclComm *comm, struct ncclPeerInfo* myInfo, struct ncclPeerInfo* peerInfo, struct ncclP2pBuff* p2pBuff, uint64_t *paList, void** devMem, void** ipcPtr) {
-  INFO(NCCL_ALL, "trayMap rank%d,myInfo rank%d hostHash 0x%lx, peerInfo rank%d hostHash 0x%lx", 
-                    comm->rank, myInfo->rank, myInfo->hostHash, peerInfo->rank, peerInfo->hostHash);
+#ifdef RSMI_SUPPORT_SUPER_NODE
   if ((myInfo->hostHash == peerInfo->hostHash) && (myInfo->pidHash == peerInfo->pidHash)) {  // must be same host/pid
     *devMem = p2pBuff->directPtr;
     *ipcPtr = NULL;
@@ -613,8 +591,8 @@ static ncclResult_t trayMap(struct ncclComm *comm, struct ncclPeerInfo* myInfo, 
             peerInfo->cudaDev);
       return ncclInternalError;
     }
-    INFO(NCCL_ALL, "trayMap export, rank%d, myInfo rank%d, peerInfo rank%d, devMem %p, pa 0x%lx", 
-            comm->rank, myInfo->rank, peerInfo->rank,*devMem, paList[1]);
+    INFO(NCCL_P2P|NCCL_ALLOC, "trayMap export, rank%d, myInfo rank%d, peerInfo rank%d, devMem %p, pa 0x%lx", 
+            comm->rank, myInfo->rank, peerInfo->rank, *devMem, paList[1]);
   } else {  // must diff host/pid
     if (p2pBuff->memType == P2P_HSA_PCIE_MEM) {
       WARN("failed to import internode buffer: memtype hsa pcie:dev %d", myInfo->cudaDev);
@@ -625,9 +603,10 @@ static ncclResult_t trayMap(struct ncclComm *comm, struct ncclPeerInfo* myInfo, 
       return ncclInternalError;
     }
     *ipcPtr = *devMem; 
-    INFO(NCCL_ALL, "trayMap import, rank%d, myInfo rank%d, peerInfo rank%d, devMem %p, pa 0x%lx", 
-            comm->rank, myInfo->rank, peerInfo->rank,*devMem, paList[1]);
+    INFO(NCCL_P2P|NCCL_ALLOC, "trayMap import, rank%d, myInfo rank%d, peerInfo rank%d, devMem %p, pa 0x%lx", 
+            comm->rank, myInfo->rank, peerInfo->rank, *devMem, paList[1]);
   }
+#endif
   return ncclSuccess;
 }
 
@@ -652,7 +631,6 @@ ncclResult_t p2pSendSetup(struct ncclComm* comm, struct ncclTopoGraph* graph, st
     }
   } else {
     isXGMI = true;
-    INFO(NCCL_ALL, "p2pSendSetup isXGMI %d,useRead %d", isXGMI, useRead);
   }
   if (!isXGMI && !IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx90a") && !IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx94")) {
     CUDACHECK(hipDeviceGetAttribute((int*)&resources->next_hdp_reg, hipDeviceAttributeHdpMemFlushCntl,peerInfo->cudaDev));
@@ -688,8 +666,8 @@ ncclResult_t p2pSendSetup(struct ncclComm* comm, struct ncclTopoGraph* graph, st
       } else {
         // Legacy CUDA IPC
         resources->type = P2P_IPC;
-        INFO(NCCL_INIT|NCCL_P2P,"Channel %02d/%01d : %d[%lx] -> %d[%lx] via P2P/IPC%s%s comm %p nRanks %02d",
-             channelId, connIndex, myInfo->rank, myInfo->busId, peerInfo->rank, peerInfo->busId, useReadStr, useMemcpy ? "/CE" : "", comm, comm->nRanks);
+        INFO(NCCL_INIT|NCCL_P2P,"Channel %02d/%01d : %d[%lx] -> %d[%lx] via P2P/IPC%s%s%s comm %p nRanks %02d",
+             channelId, connIndex, myInfo->rank, myInfo->busId, peerInfo->rank, peerInfo->busId, useReadStr, useMemcpy ? "/CE" : "", isHbInternode ? "/Hb" : "", comm, comm->nRanks);
       }
       send->conn.flags |= info->read ? NCCL_IPC_READ : NCCL_IPC_WRITE;
     }
@@ -714,7 +692,6 @@ ncclResult_t p2pSendSetup(struct ncclComm* comm, struct ncclTopoGraph* graph, st
   } else {
     NCCLCHECK(ncclProxyCallBlocking(comm, &send->proxyConn, ncclProxyMsgSetup, &sendSize, sizeof(int), &info->p2pBuff, sizeof(struct ncclP2pBuff)));
     if (true == isHbInternode) {
-      INFO(NCCL_ALL, "p2pSendSetup rank%d traymap, ptr %p, reqSize %d\n", comm->rank, info->p2pBuff.directPtr, sendSize);
       NCCLCHECK(trayMap(comm, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, info->paList, (void**)&resources->sendDevMem, &resources->sendMemTray));
     } else {
       NCCLCHECK(p2pMap(comm, &send->proxyConn, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, (void**)&resources->sendDevMem, &resources->sendMemIpc));
@@ -791,7 +768,6 @@ ncclResult_t p2pRecvSetup(struct ncclComm* comm, struct ncclTopoGraph* graph, st
   NCCLCHECK(ncclProxyCallBlocking(comm, &recv->proxyConn, ncclProxyMsgSetup, &recvSize, sizeof(int), &info->p2pBuff, sizeof(struct ncclP2pBuff)));
 
   if (true == isHbInternode) {
-    INFO(NCCL_ALL, "p2pRecvSetup rank%d traymap, ptr %p, recvSize %d", comm->rank, info->p2pBuff.directPtr, recvSize);
     NCCLCHECK(trayMap(comm, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, info->paList, (void**)&resources->recvDevMem, &resources->recvMemTray));
   } else {
     NCCLCHECK(p2pMap(comm, &recv->proxyConn, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, (void**)&resources->recvDevMem, &resources->recvMemIpc));
@@ -913,14 +889,14 @@ ncclResult_t p2pSendFree(struct ncclConnector* send) {
       if (resources->recvMemIpc) NCCLCHECK(ncclCudaFree(resources->recvMemIpc));
     }
     else {
+      #ifdef RSMI_SUPPORT_SUPER_NODE
       if (resources->sendMemTray) {
-        INFO(NCCL_ALL, "p2pSendFree send tprank%d,tplocalrank%d,sendMemTray free",send->proxyConn.tpRank,send->proxyConn.tpLocalRank);
         ncclP2pFreeInterNodeBuffer(resources->sendMemTray);
       }
       if (resources->recvMemTray) {
-        INFO(NCCL_ALL, "p2pSendFree send tprank%d,tplocalrank%d,recvMemTray free",send->proxyConn.tpRank,send->proxyConn.tpLocalRank);
         ncclP2pFreeInterNodeBuffer(resources->recvMemTray);
       }
+      #endif
       if (resources->sendMemIpc) CUDACHECK(cudaIpcCloseMemHandle(resources->sendMemIpc));
       if (resources->recvMemIpc) {
         if (resources->recvMemType == P2P_HIP_NOR_MEM) {
@@ -944,14 +920,14 @@ ncclResult_t p2pRecvFree(struct ncclConnector* recv) {
       if (resources->recvMemIpc) NCCLCHECK(ncclCudaFree(resources->recvMemIpc));
     }
     else {
+      #ifdef RSMI_SUPPORT_SUPER_NODE
       if (resources->sendMemTray) {
-        INFO(NCCL_ALL, "p2pRecvFree recv tprank%d,tplocalrank%d,sendMemTray free",recv->proxyConn.tpRank,recv->proxyConn.tpLocalRank);
         ncclP2pFreeInterNodeBuffer(resources->sendMemTray);
       }
       if (resources->recvMemTray) {
-        INFO(NCCL_ALL, "p2pRecvFree recv tprank%d,tplocalrank%d,recvMemTray free",recv->proxyConn.tpRank,recv->proxyConn.tpLocalRank);
         ncclP2pFreeInterNodeBuffer(resources->recvMemTray);
       }
+      #endif
       if (resources->sendMemIpc) CUDACHECK(cudaIpcCloseMemHandle(resources->sendMemIpc));
       if (resources->recvMemIpc) CUDACHECK(cudaIpcCloseMemHandle(resources->recvMemIpc));
       if (useMemcpy) {

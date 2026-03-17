@@ -931,7 +931,7 @@ static ncclResult_t computeBuffSizes(struct ncclComm* comm) {
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
     comm->buffSizes[p] = envs[p] != -2 ? envs[p] : defaults[p];
   }
-  // if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && comm->nNodes > 1) comm->buffSizes[NCCL_PROTO_SIMPLE] = (1 << 20) ; // smaller for hb internode trans 
+  if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && comm->nNodes > 1 && !comm->isSuperNode) comm->buffSizes[NCCL_PROTO_SIMPLE] = (1 << 20) ; // smaller for hb internode trans 
   if (comm->nNodes > 1) comm->p2pChunkSize = ncclParamP2pNetChunkSize();
   else if (ncclTopoPathAllNVLink(comm->topo)) comm->p2pChunkSize = ncclParamP2pNvlChunkSize();
   else comm->p2pChunkSize = ncclParamP2pPciChunkSize();
@@ -1190,6 +1190,11 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, comm->peerInfo, sizeof(struct ncclPeerInfo)), ret, fail);
 
   comm->cuMemSupport = 1;
+  #ifdef RSMI_SUPPORT_SUPER_NODE
+  comm->isSuperNode = true;
+  #else
+  comm->isSuperNode = false;
+  #endif
   for (int i = 0; i < nranks; i++) {
     if (comm->peerInfo[i].hostHash != comm->peerInfo[rank].hostHash) nNodes++;
     if (!comm->peerInfo[i].cuMemSupport) comm->cuMemSupport = 0;
@@ -1198,6 +1203,10 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
       ret = ncclInvalidUsage;
       goto fail;
     }
+    #ifdef RSMI_SUPPORT_SUPER_NODE
+    // check if all peers have uniqueId in topo, if not it is not a supernode system;
+    if (comm->isSuperNode && !isUniqueidInTopo(comm->peerInfo[i].uniqueId)) comm->isSuperNode = false;
+    #endif
   }
 
   // AllGather1 - end
@@ -1677,7 +1686,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   // set Simple nChannels to ncclParamCollSimpleChannels() when gcn=gfx936 or multi nodes on gfx938
   if(IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") || 
     ((IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938")) && comm->nNodes > 1)) {
-    int CollSimpleChannels = 32; // TBC opt , 16;
+    int CollSimpleChannels = comm->isSuperNode ? 32 : 16;  // supernode system set to 32 channels for CollSimple, otherwise set to 16
     if(ncclParamCollSimpleChannels() != -2) CollSimpleChannels = ncclParamCollSimpleChannels();
     if(CollSimpleChannels <= comm->nChannels && CollSimpleChannels > 0) comm->CollSimpleChannels = CollSimpleChannels;
   }

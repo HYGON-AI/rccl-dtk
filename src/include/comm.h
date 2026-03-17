@@ -432,6 +432,7 @@ struct ncclComm {
   hsa_agent_t hsaAgent;
   bool useXdp;
   int linkTopoType;
+  bool isSuperNode;  // if true, all peers have uniqueId in sys topo, which means it is a supernode system.
 
   int netPluginLoaded;
   ncclNet_t* ncclNet;
