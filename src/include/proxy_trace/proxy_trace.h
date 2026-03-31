@@ -10,10 +10,6 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
-#ifndef FMT_HEADER_ONLY
-#define FMT_HEADER_ONLY 1
-#endif
-#include <fmt/format.h>
 #include <memory>
 #include <unordered_map>
 namespace facebook_rccl {
@@ -75,8 +71,10 @@ struct ProxyTraceExtraInfo {
   uint32_t totalBytes{0};
   uint32_t chunkSize{0};
   inline std::string str() const {
-    return fmt::format("[fu,pr,pa,tb,ck]:{},{},{},{},{}", funcIdx, protocol,
-                       pattern, totalBytes, chunkSize);
+    char buffer[256]; 
+    snprintf(buffer, sizeof(buffer), "[fu,pr,pa,tb,ck]:%d,%d,%d,%u,%u", 
+             funcIdx, protocol, pattern, totalBytes, chunkSize);
+    return std::string(buffer);
   }
 };
 

@@ -19,8 +19,8 @@ cudaError_t cudaUserObjectCreate(...)                { return cudaErrorStubLibra
 cudaError_t cudaGraphRetainUserObject(...)           __attribute__((visibility("hidden"))) __attribute((weak));
 cudaError_t cudaGraphRetainUserObject(...)           { return cudaErrorStubLibrary; }
 
-cudaError_t cudaStreamUpdateCaptureDependencies(...) __attribute__((visibility("hidden"))) __attribute((weak));
-cudaError_t cudaStreamUpdateCaptureDependencies(...) { return cudaErrorStubLibrary; }
+cudaError_t hipStreamUpdateCaptureDependencies(...) __attribute__((visibility("hidden"))) __attribute((weak));
+cudaError_t hipStreamUpdateCaptureDependencies(...) { return cudaErrorStubLibrary; }
 
 cudaError_t cudaGetDriverEntryPoint(...)             __attribute__((visibility("hidden"))) __attribute((weak));
 cudaError_t cudaGetDriverEntryPoint(...)             { return cudaErrorStubLibrary; }
