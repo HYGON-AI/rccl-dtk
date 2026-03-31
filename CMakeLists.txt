@@ -43,6 +43,7 @@ option(TIMETRACE                               "Enable time-trace during compila
 option(TRACE                                   "Enable additional tracing"                     OFF)
 option(FAULT_INJECTION                         "Enable fault injection"                        ON)
 option(QUIET_WARNINGS                          "Supress compiler warnings"                     ON)
+option(SUPPORT_XHCL_TOPO                       "Support Detect Hyswitch"                       ON)
 
 # Default GPU architectures to build
 #==================================================================================================
@@ -949,6 +950,9 @@ if(HAVE_ROCM_SMI64CONFIG)
 endif()
 if(HAVE_ROCM_SMI_THREAD_ONLY_MUTEX)
   target_compile_definitions(rccl PRIVATE USE_ROCM_SMI_THREAD_ONLY_MUTEX)
+endif()
+if (SUPPORT_XHCL_TOPO)
+  target_compile_definitions(rccl PRIVATE RSMI_SUPPORT_XHCL_TOPO)
 endif()
 
 # NPKit flags

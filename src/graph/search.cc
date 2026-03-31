@@ -1465,7 +1465,7 @@ ncclResult_t ncclTopoGetLinkType(struct ncclTopoSystem* system, int cudaDev1, in
   int interGpus[MAX_XGMI_INTER_GPUS+1];
   int ngpus = system->nodes[GPU].count;
   *isXGMI = false;
-  // check for direct XGMI connection
+  // check for direct HYLink and HYSwitch connections
   for (int i=0; i<ngpus; i++) {
     if (system->nodes[GPU].nodes[i].gpu.dev == cudaDev1) {
       struct ncclTopoNode *node = system->nodes[GPU].nodes+i;
@@ -1474,6 +1474,13 @@ ncclResult_t ncclTopoGetLinkType(struct ncclTopoSystem* system, int cudaDev1, in
           struct ncclTopoLink* link = node->paths[GPU][k].list[0];
           struct ncclTopoNode* remNode = link->remNode;
           if (remNode->gpu.dev == cudaDev2) {
+            *isXGMI = (link->type == LINK_NVL);
+            if (*isXGMI) return ncclSuccess;
+          }
+        } else if (node->paths[GPU][k].count == 2) {
+          struct ncclTopoLink* link = node->paths[GPU][k].list[0];
+          struct ncclTopoNode* remNode = link->remNode;
+          if (remNode->type == NVS) {
             *isXGMI = (link->type == LINK_NVL);
             if (*isXGMI) return ncclSuccess;
           }
