@@ -1198,10 +1198,10 @@ search:
     if (globalTimeout < 0 && graph->nChannels) goto done;
 
     // Try a simpler tree
-    if (ccMin >= 90 && tmpGraph.pattern == NCCL_TOPO_PATTERN_BALANCED_TREE) {
-      tmpGraph.pattern = NCCL_TOPO_PATTERN_TREE;
-      goto search;
-    }
+    // if (ccMin >= 90 && tmpGraph.pattern == NCCL_TOPO_PATTERN_BALANCED_TREE) {
+    //   tmpGraph.pattern = NCCL_TOPO_PATTERN_TREE;
+    //   goto search;
+    // }
     tmpGraph.pattern = graph->pattern;
 
     int maxIntra = system->nodes[NET].count > 0 ? tmpGraph.typeInter : maxTypeIntra;
@@ -1415,7 +1415,7 @@ ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoG
         if (gpu->paths[NET][n].type <= PATH_PXN) {
           if (dev) *dev = netDev;
           if (id) *id = netId;
-          NCCLCHECK(ncclTopoGetIntermediateRank(comm->topo, rank, *dev, proxyRank));
+          NCCLCHECK(ncclTopoGetIntermediateRank(comm->topo, rank, netDev, proxyRank));
         }
       } else if (pxnLevel == 2) {
         // Check which local GPU corresponds to that NIC and see if we can use PXN.

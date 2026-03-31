@@ -626,6 +626,7 @@ struct ncclComm {
   struct ncclComm* preconnectNext;
   int localPersistentRefs; // number of persistent plan-lists capturing this comm
   struct P2pSchedulePair { int sendRank; int recvRank; } *p2pSchedule;
+  int p2pPreRound;
 
   struct ncclKernelPlanner planner;
 

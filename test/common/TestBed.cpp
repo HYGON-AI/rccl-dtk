@@ -540,6 +540,10 @@ namespace RcclUnitTesting
       delete(childList[childId]);
     }
 
+    for (int childId = 0; childId < this->numActiveChildren; ++childId)
+    {
+      delete childList[childId];
+    }
     childList.clear();
 
     // Reset bookkeeping
