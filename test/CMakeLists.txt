@@ -8,6 +8,19 @@ if(BUILD_TESTS)
   option(OPENMP_TESTS_ENABLED "Enable OpenMP for unit tests" OFF)
 
   message("Building rccl unit tests (Installed in /test/rccl-UnitTests)")
+  if (GTEST_PATH)
+    set(GTEST_ROOT ${GTEST_PATH})
+    find_package(GTest 1.11)
+  endif()
+  if (BUILD_TESTS_ONLY)
+    add_compile_options(-std=c++14)
+    find_package(GTest 1.11)
+    find_package(hip REQUIRED)
+    find_package(ROCM REQUIRED)
+    include(ROCMInstallTargets)
+    set(BUILD_SHARED_LIBS ON)
+    set(PROJECT_BINARY_DIR ${PROJECT_BINARY_DIR}/../../build)
+  endif()
 
   if (ENABLE_CODE_COVERAGE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
@@ -64,7 +77,7 @@ if(BUILD_TESTS)
     hip::host hip::device hsa-runtime64::hsa-runtime64
     Threads::Threads
     dl
-    fmt::fmt-header-only
+    # fmt::fmt-header-only
   )
   if(OPENMP_TESTS_ENABLED)
     list(APPEND RCCL_COMMON_LINK_LIBS "${OpenMP_CXX_FLAGS}")
@@ -73,15 +86,17 @@ if(BUILD_TESTS)
   # Get the compile definitions from the main rccl target
   # These helps to keep the test compile definitions in sync with the main rccl target
   # Also, all the structure layout remains the same across all the targets
-  get_target_property(RCCL_COMPILE_DEFINITIONS rccl COMPILE_DEFINITIONS)
-  if(RCCL_COMPILE_DEFINITIONS)
-    list(APPEND RCCL_COMMON_COMPILE_DEFS ${RCCL_COMPILE_DEFINITIONS})
-  endif()
+  if(NOT BUILD_TESTS_ONLY)
+    get_target_property(RCCL_COMPILE_DEFINITIONS rccl COMPILE_DEFINITIONS)
+    if(RCCL_COMPILE_DEFINITIONS)
+      list(APPEND RCCL_COMMON_COMPILE_DEFS ${RCCL_COMPILE_DEFINITIONS})
+    endif()
 
-  # Also get interface compile definitions
-  get_target_property(RCCL_INTERFACE_COMPILE_DEFINITIONS rccl INTERFACE_COMPILE_DEFINITIONS)
-  if(RCCL_INTERFACE_COMPILE_DEFINITIONS)
-    list(APPEND RCCL_COMMON_COMPILE_DEFS ${RCCL_INTERFACE_COMPILE_DEFINITIONS})
+    # Also get interface compile definitions
+    get_target_property(RCCL_INTERFACE_COMPILE_DEFINITIONS rccl INTERFACE_COMPILE_DEFINITIONS)
+    if(RCCL_INTERFACE_COMPILE_DEFINITIONS)
+      list(APPEND RCCL_COMMON_COMPILE_DEFS ${RCCL_INTERFACE_COMPILE_DEFINITIONS})
+    endif()
   endif()
 
   # Collect testing framework source files
@@ -129,6 +144,9 @@ if(BUILD_TESTS)
 
   # Create rccl-UnitTests binary
   add_executable(rccl-UnitTests ${TEST_SOURCE_FILES})
+  target_compile_options(rccl-UnitTests PRIVATE -Wno-return-type)
+  target_compile_options(rccl-UnitTests PRIVATE -Wno-unused-result)
+  target_compile_options(rccl-UnitTests PRIVATE -Wunknown-warning-option)
   
   # Create rccl-UnitTestsFixtures binary if ROCm version is 4.6.0 or greater
   # and build type is Debug
@@ -168,11 +186,16 @@ if(BUILD_TESTS)
     target_compile_definitions(${test_executable} PRIVATE ${RCCL_COMMON_COMPILE_DEFS})
     target_link_libraries(${test_executable} PRIVATE ${RCCL_COMMON_LINK_LIBS})
     if(BUILD_SHARED_LIBS)
-      target_link_libraries(${test_executable} PRIVATE rccl)
-      if(${HOST_OS_ID} STREQUAL "debian")
+      if (BUILD_TESTS_ONLY)
+        target_link_libraries(rccl-UnitTests PRIVATE ${PROJECT_BINARY_DIR}/librccl.so)
+        target_link_libraries(rccl-UnitTests PRIVATE stdc++)
+      else()
+        target_link_libraries(rccl-UnitTests PRIVATE rccl)
+        if(${HOST_OS_ID} STREQUAL "debian")
         set_property(TARGET ${test_executable} PROPERTY INSTALL_RPATH "${CMAKE_BINARY_DIR}")
-      elseif(DEFINED HOST_OS_FAMILY AND "${HOST_OS_FAMILY}" STREQUAL "debian")
+        elseif(DEFINED HOST_OS_FAMILY AND "${HOST_OS_FAMILY}" STREQUAL "debian")
         set_property(TARGET ${test_executable} PROPERTY INSTALL_RPATH "${CMAKE_BINARY_DIR}")
+        endif()
       endif()
     else()
       add_dependencies(${test_executable} rccl)
