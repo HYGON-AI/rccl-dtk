@@ -34,5 +34,11 @@ ncclResult_t rocm_smi_getNumDevice(uint32_t* num_devs);
 ncclResult_t rocm_smi_getDevicePciBusIdString(uint32_t deviceIndex, char* pciBusId, size_t len);
 ncclResult_t rocm_smi_getDeviceIndexByPciBusId(const char* pciBusId, uint32_t* deviceIndex);
 ncclResult_t rocm_smi_getLinkInfo(int srcDev, int dstDev, RSMI_IO_LINK_TYPE* rsmi_type, int *hops, int *count);
+#ifdef RSMI_SUPPORT_XHCL_TOPO
+ncclResult_t rocm_smi_dev_xhcl_link_number_get(uint32_t deviceIndex, uint32_t *linkNum);
+ncclResult_t rocm_smi_dev_xhcl_link_state_get(uint32_t deviceIndex, uint32_t linkId, uint32_t *linkState);
+ncclResult_t rocm_smi_dev_xhcl_link_remote_bdfid_get(uint32_t deviceIndex, uint32_t linkId, uint64_t *pciBusId, bool *isSkip = NULL);
+ncclResult_t rocm_smi_dev_xhcl_link_remote_dev_type_get(uint32_t deviceIndex, uint32_t linkId, RSMI_XHCL_LINK_TYPE *devType);
+#endif
 
 #endif

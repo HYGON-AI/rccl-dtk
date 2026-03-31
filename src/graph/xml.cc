@@ -755,6 +755,7 @@ ncclResult_t ncclTopoGetXmlFromSys(struct ncclXmlNode* pciNode, struct ncclXml* 
   return ncclSuccess;
 }
 
+RCCL_PARAM(EnableXHCLTopo, "ENABLE_XHCL_TOPO", 1);
 ncclResult_t ncclTopoGetXmlFromGpu(struct ncclXmlNode* pciNode, uint32_t rocmDev, struct ncclXml* xml, struct ncclXmlNode** gpuNodeRet) {
   struct ncclXmlNode* gpuNode = NULL;
   NCCLCHECK(xmlGetSub(pciNode, "gpu", &gpuNode));
@@ -816,28 +817,68 @@ ncclResult_t ncclTopoGetXmlFromGpu(struct ncclXmlNode* pciNode, uint32_t rocmDev
 #endif
   if (nvlNode == NULL) {
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
-    const char* busId;
-    NCCLCHECK(xmlGetAttr(pciNode, "busid", &busId));
-    uint32_t deviceCnt;
-    NCCLCHECK(rocm_smi_getNumDevice(&deviceCnt));
-    for (int i=0; i<deviceCnt; i++) {
-      if (i != dev) {
-        RSMI_IO_LINK_TYPE rsmi_type;
-        int hops, count;
-        if (rocm_smi_getLinkInfo(dev, i, &rsmi_type, &hops, &count) == ncclSuccess) {
-          if (rsmi_type == RSMI_IOLINK_TYPE_XGMI && hops == 1) {
-            char busIdStr[] = "00000000:00:00.0";
-            NCCLCHECK(rocm_smi_getDevicePciBusIdString(i, busIdStr, sizeof(busIdStr)));
-            char lowerId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
-            for (int c=0; c<NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE; c++) {
-              lowerId[c] = tolower(busIdStr[c]);
-              if (busIdStr[c] == 0) break;
-            }
-            NCCLCHECK(xmlGetSubKv(gpuNode, "xgmi", &nvlNode, "target", lowerId));
-            if (nvlNode == NULL) {
-              NCCLCHECK(xmlAddNode(xml, gpuNode, "xgmi", &nvlNode));
-              NCCLCHECK(xmlSetAttr(nvlNode, "target", lowerId));
-              NCCLCHECK(xmlSetAttrInt(nvlNode, "count", count));
+#ifdef RSMI_SUPPORT_XHCL_TOPO
+    if (rcclParamEnableXHCLTopo()) {
+      uint32_t linkNum = 0;
+      uint32_t linkState = 0;
+      uint64_t pciBdf = 0;
+
+      NCCLCHECK(rocm_smi_dev_xhcl_link_number_get(rocmDev, &linkNum));
+      for (int j = 0; j < linkNum; j++) {
+        bool isSkip = false;
+        NCCLCHECK(rocm_smi_dev_xhcl_link_state_get(rocmDev, j, &linkState));
+        if (linkState == 0) {
+          continue;
+        }
+
+        NCCLCHECK(rocm_smi_dev_xhcl_link_remote_bdfid_get(rocmDev, j, &pciBdf, &isSkip));
+        if (isSkip) {
+          continue;
+        }
+        char busIdStr[] = "00000000:00:00.0";
+        snprintf(busIdStr, sizeof(busIdStr), "%04lx:%02lx:%02lx.%01lx", (pciBdf) >> 32, (pciBdf & 0xff00) >> 8, (pciBdf & 0xf8) >> 3, (pciBdf & 0x7));
+        char lowerId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
+        for (int c=0; c<NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE; c++) {
+          lowerId[c] = tolower(busIdStr[c]);
+          if (busIdStr[c] == 0) break;
+        }
+        NCCLCHECK(xmlGetSubKv(gpuNode, "xgmi", &nvlNode, "target", lowerId));
+        if (nvlNode == NULL) {
+          NCCLCHECK(xmlAddNode(xml, gpuNode, "xgmi", &nvlNode));
+          NCCLCHECK(xmlSetAttr(nvlNode, "target", lowerId));
+          NCCLCHECK(xmlSetAttrInt(nvlNode, "count", 1));
+        } else {
+          int count;
+          NCCLCHECK(xmlGetAttrInt(nvlNode, "count", &count));
+          NCCLCHECK(xmlSetAttrInt(nvlNode, "count", count+1));
+        }
+      }
+    } else
+#endif
+    {
+      const char* busId;
+      NCCLCHECK(xmlGetAttr(pciNode, "busid", &busId));
+      uint32_t deviceCnt;
+      NCCLCHECK(rocm_smi_getNumDevice(&deviceCnt));
+      for (int i=0; i<deviceCnt; i++) {
+        if (i != dev) {
+          RSMI_IO_LINK_TYPE rsmi_type;
+          int hops, count;
+          if (rocm_smi_getLinkInfo(dev, i, &rsmi_type, &hops, &count) == ncclSuccess) {
+            if (rsmi_type >= RSMI_IOLINK_TYPE_XGMI && hops >= 1) {
+              char busIdStr[] = "00000000:00:00.0";
+              NCCLCHECK(rocm_smi_getDevicePciBusIdString(i, busIdStr, sizeof(busIdStr)));
+              char lowerId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
+              for (int c=0; c<NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE; c++) {
+                lowerId[c] = tolower(busIdStr[c]);
+                if (busIdStr[c] == 0) break;
+              }
+              NCCLCHECK(xmlGetSubKv(gpuNode, "xgmi", &nvlNode, "target", lowerId));
+              if (nvlNode == NULL) {
+                NCCLCHECK(xmlAddNode(xml, gpuNode, "xgmi", &nvlNode));
+                NCCLCHECK(xmlSetAttr(nvlNode, "target", lowerId));
+                NCCLCHECK(xmlSetAttrInt(nvlNode, "count", count));
+              }
             }
           }
         }

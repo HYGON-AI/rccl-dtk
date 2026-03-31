@@ -176,10 +176,10 @@ ncclResult_t rocm_smi_getLinkInfo(int srcIndex, int dstIndex, RSMI_IO_LINK_TYPE*
         rsmi_weight == 41 || rsmi_weight == 13)) {
 	uint64_t min_bw = 0, max_bw = 0;
 	*hops = 1;
-#if defined USE_ROCM_SMI64CONFIG && rocm_smi_VERSION_MAJOR >= 5
+#if defined USE_ROCM_SMI64CONFIG && rocm_smi_VERSION_MAJOR >= 2
 	rsmi_version_t version;
 	ROCMSMICHECK(rsmi_version_get(&version));
-	if (version.major >= 5)
+	if (version.major >= 2)
 	  ROCMSMICHECK(rsmi_minmax_bandwidth_get(srcIndex, dstIndex, &min_bw, &max_bw));
 	if (max_bw && min_bw)
 	  *count = max_bw/min_bw;
@@ -201,3 +201,31 @@ ncclResult_t rocm_smi_getLinkInfo(int srcIndex, int dstIndex, RSMI_IO_LINK_TYPE*
 
   return ncclSuccess;
 }
+
+#ifdef RSMI_SUPPORT_XHCL_TOPO
+ncclResult_t rocm_smi_dev_xhcl_link_number_get(uint32_t deviceIndex, uint32_t *linkNum) {
+  ROCMSMICHECK(rsmi_dev_xhcl_link_number_get(deviceIndex, linkNum));
+  return ncclSuccess;
+}
+
+ncclResult_t rocm_smi_dev_xhcl_link_state_get(uint32_t deviceIndex, uint32_t linkId, uint32_t *linkState) {
+  ROCMSMICHECK(rsmi_dev_xhcl_link_state_get(deviceIndex, linkId, linkState));
+  return ncclSuccess;
+}
+
+ncclResult_t rocm_smi_dev_xhcl_link_remote_bdfid_get(uint32_t deviceIndex, uint32_t linkId, uint64_t *pciBusId, bool *isSkip) {
+  if (RSMI_STATUS_SUCCESS != rsmi_dev_xhcl_link_remote_bdfid_get(deviceIndex, linkId, pciBusId)) {
+    WARN("rsmi_dev_xhcl_link_remote_bdfid_get failed. Use 0 for pciBusId and true for isSkip.");
+    if (isSkip) {
+      *pciBusId = 0;
+      *isSkip = true;
+    }
+  }
+  return ncclSuccess;
+}
+
+ncclResult_t rocm_smi_dev_xhcl_link_remote_dev_type_get(uint32_t deviceIndex, uint32_t linkId, RSMI_XHCL_LINK_TYPE *devType) {
+  ROCMSMICHECK(rsmi_dev_xhcl_link_remote_dev_type_get(deviceIndex, linkId, devType));
+  return ncclSuccess;
+}
+#endif
