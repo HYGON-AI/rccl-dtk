@@ -1243,7 +1243,8 @@ static ncclResult_t scheduleP2pTasksToPlan(
   while (nChannelsMin*nRanks > comm->p2pnChannels && nChannelsMin > 1) nChannelsMin /= 2;
 
   while (comm->planner.nTasksP2p != 0) {
-    for (int round=0; round < nRanks; round++) {
+    for (int i=0; i < nRanks; i++) {
+      int round = (i+comm->p2pPreRound)%nRanks;
       int sendRank = comm->p2pSchedule[round].sendRank;
       int recvRank = comm->p2pSchedule[round].recvRank;
       struct ncclTaskP2p* send = ncclIntruQueueHead(&peers[sendRank].sendQueue);
@@ -1275,6 +1276,7 @@ static ncclResult_t scheduleP2pTasksToPlan(
       } else {
         // Ensure room for worst case of one new batch per channel.
         if (!testBudget(budget, plan->nWorkBatches+nChannelsMax, plan->workBytes + sizeof(struct ncclDevWorkP2p))) {
+          comm->p2pPreRound = round;
           return ncclSuccess;
         }
         struct ncclTaskP2p* p2pTasks[2] = { recv, send };
@@ -1672,6 +1674,7 @@ ncclResult_t ncclLaunchPrepare(struct ncclComm* comm) {
         }
       }
     } while (planner->nTasksColl + planner->nTasksP2p != 0);
+    comm->p2pPreRound = 0;
 
     struct ncclKernelPlan* planHead = ncclIntruQueueHead(&planner->planQueue);
     planner->unlaunchedPlansHead = planHead;
