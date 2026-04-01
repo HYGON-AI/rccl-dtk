@@ -186,12 +186,12 @@ static hsa_status_t iterateAgentCallback(hsa_agent_t agent, void* data) {
   uint32_t hsaPciBdfId = 0;
   uint32_t hsaPciDomainId = 0;
 
-  status = hsa_agent_get_info(agent, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_BDFID), &hsaPciBdfId);
+  status = pfn_hsa_agent_get_info(agent, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_BDFID), &hsaPciBdfId);
   if (status != HSA_STATUS_SUCCESS) {
     return status;
   }
 
-  status = hsa_agent_get_info(agent, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_DOMAIN), &hsaPciDomainId);
+  status = pfn_hsa_agent_get_info(agent, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_DOMAIN), &hsaPciDomainId);
   if (status != HSA_STATUS_SUCCESS) {
     return status;
   }
@@ -215,7 +215,7 @@ static hsa_status_t iterateAgentCallback(hsa_agent_t agent, void* data) {
 }
 
 static ncclResult_t getAgent(struct devAgentInfo *agentInfo) {
-  if (hsa_iterate_agents(iterateAgentCallback, agentInfo) != HSA_STATUS_SUCCESS) {
+  if (pfn_hsa_iterate_agents(iterateAgentCallback, agentInfo) != HSA_STATUS_SUCCESS) {
     WARN("cudaDev:%d bdf:0x%lx fail to iterate hsa agent", agentInfo->cudaDev, agentInfo->busId);
     return ncclInternalError;
   }
@@ -472,7 +472,7 @@ ncclResult_t ncclP2pImportShareableBuffer(struct ncclComm *comm, int tpPeer, siz
 ncclResult_t ncclP2pExportInterNodeBuffer(void *ptr, size_t size, uint64_t *paList) {
   hsa_status_t ret;
   
-  ret = hsa_ext_rpc_memory_create(ptr, size, (hsa_ext_rpc_memory_t*)paList);
+  ret = pfn_hsa_ext_rpc_memory_create(ptr, size, (hsa_ext_rpc_memory_t*)paList);
   if(ret != HSA_STATUS_SUCCESS) {
     WARN("failed to get %p addr's pa: return %d", ptr, ret);
     return ncclInternalError;
@@ -492,7 +492,7 @@ ncclResult_t ncclP2pImportInterNodeBuffer(uint64_t *paList, int cudaDev, void **
     return ncclInternalError;
   }
   
-  ret = hsa_ext_rpc_memory_attach((hsa_ext_rpc_memory_t*)paList, 1, &agent, ptr);
+  ret = pfn_ext_rpc_memory_attach((hsa_ext_rpc_memory_t*)paList, 1, &agent, ptr);
   if(ret != HSA_STATUS_SUCCESS) {
     WARN("failed to attach internode memory to dev %d, ret %d(inf 0x%lx, 0x%lx)", 
         cudaDev, ret, paList[0], paList[1]);
@@ -507,7 +507,7 @@ ncclResult_t ncclP2pImportInterNodeBuffer(uint64_t *paList, int cudaDev, void **
 ncclResult_t ncclP2pFreeInterNodeBuffer(void *ptr) {
   hsa_status_t ret;
   
-  ret = hsa_ext_rpc_memory_detach(ptr);
+  ret = pfn_ext_rpc_memory_detach(ptr);
   if(ret != HSA_STATUS_SUCCESS) {
     WARN("failed to free internode memory %p, return %d", ptr, ret);
     return ncclInternalError;
