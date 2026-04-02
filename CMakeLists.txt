@@ -44,6 +44,7 @@ option(TRACE                                   "Enable additional tracing"      
 option(FAULT_INJECTION                         "Enable fault injection"                        ON)
 option(QUIET_WARNINGS                          "Supress compiler warnings"                     ON)
 option(SUPPORT_XHCL_TOPO                       "Support Detect Hyswitch"                       ON)
+option(USE_RCCL_FP8                            "Compile with RCCL fp8"                         OFF)
 
 # Default GPU architectures to build
 #==================================================================================================
@@ -953,6 +954,9 @@ if(HAVE_ROCM_SMI_THREAD_ONLY_MUTEX)
 endif()
 if (SUPPORT_XHCL_TOPO)
   target_compile_definitions(rccl PRIVATE RSMI_SUPPORT_XHCL_TOPO)
+endif()
+if (USE_RCCL_FP8)
+  target_compile_definitions(rccl PRIVATE COMPILE_RCCL_FP8)
 endif()
 
 # NPKit flags
