@@ -329,10 +329,10 @@ ncclResult_t ncclTopoCheckP2p(struct ncclComm* comm, struct ncclTopoSystem* syst
   int arch, vendor, model;
   NCCLCHECK(ncclTopoCpuType(system, &arch, &vendor, &model));
   if (arch == NCCL_TOPO_CPU_ARCH_ARM) p2pLevel = PATH_PXB;
-  if (arch == NCCL_TOPO_CPU_ARCH_X86 && vendor == NCCL_TOPO_CPU_VENDOR_INTEL) {
+  if (arch == NCCL_TOPO_CPU_ARCH_X86 && vendor == NCCL_TOPO_CPU_VENDOR_INTEL && system->nHosts != 1) {
     p2pLevel = PATH_PXB;
   }
-  if (arch == NCCL_TOPO_CPU_ARCH_X86 && vendor == NCCL_TOPO_CPU_VENDOR_ZHAOXIN) {
+  if (arch == NCCL_TOPO_CPU_ARCH_X86 && (vendor == NCCL_TOPO_CPU_VENDOR_ZHAOXIN || vendor == NCCL_TOPO_CPU_VENDOR_AMD)) {
     p2pLevel = PATH_PXB;
   }
 
@@ -1003,7 +1003,8 @@ ncclResult_t ncclTopoComputeP2pChannels(struct ncclComm* comm) {
   }
 
   // Round to next pow2 nChannelsPerPeer and nChannels
-  comm->p2pnChannelsPerPeer = (ncclParamNChannelsPerPeer() == -2 ? pow2Up(minChannels) : ncclParamNChannelsPerPeer());
+  comm->p2pnChannelsPerPeer = (ncclParamNChannelsPerPeer() != -2 ? ncclParamNChannelsPerPeer() :
+                                    comm->minLinkType < PATH_SYS ? pow2Up(minChannels) : comm->p2pnChannels);
   // Doubling P2P channels per peer on single node
   if (comm->topo->nodes[GPU].count == comm->topo->nRanks && IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx94")) comm->p2pnChannelsPerPeer *= 2;
   comm->p2pnChannels = std::min(pow2Up(comm->p2pnChannels), 4*CHANNEL_LIMIT);

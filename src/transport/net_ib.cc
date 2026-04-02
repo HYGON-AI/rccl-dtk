@@ -470,7 +470,7 @@ static ncclResult_t ncclIbGetGidIndex(struct ibv_context *context, uint8_t portN
 
 NCCL_PARAM(IbDisable, "IB_DISABLE", 0);
 NCCL_PARAM(IbMergeVfs, "IB_MERGE_VFS", 1);
-NCCL_PARAM(IbMergeNics, "IB_MERGE_NICS", 1);
+NCCL_PARAM(IbMergeNics, "IB_MERGE_NICS", 0);
 
 // Returns 0 if this is the path of two VFs of the same physical device
 static int ncclIbMatchVfPath(char* path1, char* path2) {
