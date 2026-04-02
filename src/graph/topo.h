@@ -35,6 +35,7 @@
 #define NET_BW 12.0           // 100Gbit
 #define VEGA_XGMI_WIDTH 24.0
 #define MI200_XGMI_WIDTH 36.0
+#define GFX93X_XGMI_WIDTH 32.0 
 #define GFX94X_XGMI_WIDTH 48.0
 #define GFX95X_XGMI_WIDTH 48.0
 
@@ -290,12 +291,8 @@ static ncclResult_t ncclTopoIdToNetDev(struct ncclTopoSystem* system, int64_t id
 
 // Returns XGMI speed in GB/s
 static float ncclTopoXGMISpeed(const char* gcn) {
-  if (IsArchMatch(gcn, "gfx90a"))
-    return MI200_XGMI_WIDTH;
-  else if (IsArchMatch(gcn, "gfx942"))
-    return GFX94X_XGMI_WIDTH;
-  else if (IsArchMatch(gcn, "gfx95"))
-    return GFX95X_XGMI_WIDTH;
+  if (IsArchMatch(gcn, "gfx93"))
+    return GFX93X_XGMI_WIDTH;
   else
     return VEGA_XGMI_WIDTH;
 }

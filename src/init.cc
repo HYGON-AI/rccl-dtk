@@ -77,7 +77,7 @@
 
 using namespace rccl;
 
-const char* ncclFuncStr[NCCL_NUM_FUNCTIONS+2] = { "AllGather", "AllReduce", "AllToAllPivot", "Broadcast", "Reduce", "ReduceScatter", "SendRecv"};
+const char* ncclFuncStr[NCCL_NUM_FUNCTIONS+2] = { "Broadcast", "Reduce", "AllGather", "ReduceScatter", "AllReduce", "SendRecv", "AllToAllPivot" };
 const char* ncclAlgoStr[NCCL_NUM_ALGORITHMS] = { "Tree", "Ring", "CollNetDirect", "CollNetChain", "NVLS", "NVLSTree", "PAT" };
 const char* ncclProtoStr[NCCL_NUM_PROTOCOLS] = { "LL", "LL128", "Simple" };
 const char* ncclDevRedOpStr[ncclNumDevRedOps] = { "Sum", "Prod", "MinMax", "PreMulSum", "SumPostDiv" };
@@ -1381,6 +1381,19 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
       allXgmi &= isXGMI;
     }
   }
+  //minlinkType
+  {
+    struct ncclTopoSystem* system= comm->topo;
+    comm->minLinkType = LINK_NET;
+    for (int g1 = 0; g1 < system->nodes[GPU].count; g1++){
+      for (int g2 = 0; g2 < system->nodes[GPU].count; g2++){
+        if (g1 == g2) continue;
+        struct ncclTopoNode* gpu1 = system->nodes[GPU].nodes+g1;
+        struct ncclTopoLinkList* path = gpu1->paths[GPU]+g2;
+        comm->minLinkType = std::min(comm->minLinkType, path->type);
+      }
+    }
+  }
   // Initialize num P2P LL buffers for this communicator
   comm->allocP2pNetLLBuffers = ncclParamAllocP2pNetLLBuffers() == 1;
 
@@ -1418,6 +1431,10 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
     allGather3Data[rank].nc = 4;
   if (IsArchMatch(comm->topo->nodes[GPU].nodes[idx].gpu.gcn, "gfx90a"))
     allGather3Data[rank].nc = std::max(allGather3Data[rank].nc, 4/ringGraph->nChannels);
+  if (IsArchMatch(comm->topo->nodes[GPU].nodes[idx].gpu.gcn, "gfx928") || IsArchMatch(comm->topo->nodes[GPU].nodes[idx].gpu.gcn, "gfx906"))
+    allGather3Data[rank].nc = 4;
+  if (IsArchMatch(comm->topo->nodes[GPU].nodes[idx].gpu.gcn, "gfx93"))
+    allGather3Data[rank].nc = CHANNEL_LIMIT*2;
   if (ringGraph->nChannels > MAXCHANNELS/2)
     allGather3Data[rank].nc = 1;
   comm -> gfx9CheapFenceOff = 1;

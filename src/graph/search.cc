@@ -100,7 +100,7 @@ static ncclResult_t followPath(struct ncclTopoLinkList* path, struct ncclTopoNod
     struct ncclTopoLink* revLink = NULL;
     float fwBw = link->type == LINK_PCI ? pciBw : bw;
     float revBw = 0;
-    if (link->remNode->type == GPU && link->remNode->gpu.cudaCompCap < 80 && start->type != GPU) {
+    if (link->remNode->type == GPU && link->remNode->gpu.cu < 80 && start->type != GPU) {
       if (revLink == NULL) NCCLCHECK(findRevLink(node, link->remNode, link->type, &revLink));
       revBw += fwBw/8;
     }
@@ -724,12 +724,13 @@ ncclResult_t ncclTopoSearchRecNet(struct ncclTopoSystem* system, struct ncclTopo
         }
       }
     } else {
-      if (graph->nChannels > 0 && graph->sameChannels == 1) {
-        // Try to replay the last channel
-        int g;
-        NCCLCHECK(ncclTopoReplayGetGpu(system, graph, -1, &g));
-        NCCLCHECK(ncclTopoSearchTryGpu(system, graph, saveGraph, 0, backToNet, backToFirstRank, FORCED_ORDER_REPLAY, time, NET, n, g));
-      } else {
+      // if (graph->nChannels > 0) {
+      //   // Try to replay the last channel
+      //   int g;
+      //   NCCLCHECK(ncclTopoReplayGetGpu(system, graph, -1, &g));
+      //   NCCLCHECK(ncclTopoSearchTryGpu(system, graph, saveGraph, 0, backToNet, backToFirstRank, FORCED_ORDER_REPLAY, time, NET, n, g));
+      // }
+      if (graph->nChannels == 0 || graph->sameChannels == 0) {
         if (graph->nChannels == 0 && system->nodes[NVS].count == 0) {
           // Always try the PCI order first to set a reference, but don't count in the timeout nor let it run for long
           struct ncclTopoLinkList* paths = net->paths[GPU];
@@ -988,7 +989,7 @@ ncclResult_t ncclTopoGetXmlFromGraphs(int ngraphs, struct ncclTopoGraph** graphs
 ncclResult_t ncclTopoDupChannels(struct ncclTopoGraph* graph, int ccMin, int ngpus) {
   if (graph->nChannels == 0) return ncclSuccess;
   if (graph->pattern == NCCL_TOPO_PATTERN_NVLS) return ncclSuccess;
-  if (graph->bwIntra < 25.0) return ncclSuccess;
+  if (graph->bwIntra < 48.0) return ncclSuccess;
   if (ccMin > 80 && graph->bwIntra < 50.0 && graph->nChannels > 4) return ncclSuccess;
 
   int dupChannels = std::min(graph->nChannels*2, graph->maxChannels);
@@ -1001,8 +1002,8 @@ ncclResult_t ncclTopoDupChannels(struct ncclTopoGraph* graph, int ccMin, int ngp
 }
 
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
-float speedArrayIntra[] = { 48.0, 24.0, 20.0, 18.0, 15.0, 12.0, 10.0, 9.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.4, 1.2, 0.24, 0.12 };
-float speedArrayInter[] = { 48.0, 24.0, 20.0, 18.0, 15.0, 12.0, 10.0, 9.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.4, 1.2, 0.24, 0.12 };
+float speedArrayIntra[] = { 48.0, 42.0, 36.0, 21.0, 20.0, 18.0, 15.0, 12.0, 10.0, 9.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.4, 1.2, 0.24, 0.12 };
+float speedArrayInter[] = { 42.0, 36.0, 24.0, 21.0, 20.0, 18.0, 15.0, 12.0, 10.0, 9.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.4, 1.2, 0.24, 0.12 };
 #define NSPEEDSINTRA (sizeof(speedArrayIntra)/sizeof(float))
 #define NSPEEDSINTER (sizeof(speedArrayInter)/sizeof(float))
 #else
@@ -1088,24 +1089,7 @@ ncclResult_t ncclTopoCompute(ncclTopoSystem* system, struct ncclTopoGraph* graph
       }
     }
   } else if (!rcclParamModelMatchingDisable() && !graph->collNet) {
-    // try to match 8P6L
-    NCCLCHECK(parseChordalRing(system, graph));
-    if (graph->nChannels) return ncclSuccess;
-    // try to match 8P alltoall connected GPUs
-    NCCLCHECK(parseA2a8P(system, graph, nullptr));
-    if (graph->nChannels) return ncclSuccess;
-    // try to match Rome 4P2H
-    const char *remap_str = getenv("NCCL_RINGS_REMAP");
-    NCCLCHECK(parseRome4P2H(system, graph, remap_str));
-    if (graph->nChannels) return ncclSuccess;
-    // try to match 1H16P
-    NCCLCHECK(parse1H16P(system, graph));
-    if (graph->nChannels) return ncclSuccess;
-    // try to match 4H4P
-    NCCLCHECK(parse4H4P(system, graph));
-    if (graph->nChannels) return ncclSuccess;
-
-    NCCLCHECK(parseGIOTopos(system, graph));
+    NCCLCHECK(parseHygon(system, graph));
   }
   if (graph->nChannels) return ncclSuccess;
 

@@ -1075,7 +1075,7 @@ static ncclResult_t addP2pToPlan(
     else if (bytes[dir] == 0) nChannels[dir] = 1;
     else {
       ssize_t minPartSize = comm->nNodes > 1 ? stepSize[dir]/2 : stepSize[dir]/8;
-      ssize_t maxPartSize = comm->nNodes > 1 ? stepSize[dir]   : stepSize[dir]*32;
+      ssize_t maxPartSize = comm->nNodes > 1 ? stepSize[dir]   : comm->minLinkType < PATH_SYS || bytes[dir] < 65536 ? stepSize[dir]*32 : divUp(bytes[dir], comm->p2pnChannels);
       nChannels[dir] = std::min<int>(nChannelsMin, divUp(bytes[dir], minPartSize));
       size_t partSize = std::max(minPartSize, divUp(bytes[dir], nChannels[dir]));
       while (partSize > maxPartSize && nChannels[dir] <= nChannelsMax/2) {
@@ -2327,7 +2327,11 @@ static ncclResult_t calcCollChunking(
       while(nBytes / (nChannels * chunkSize) < 64 && chunkSize > 262144) chunkSize /= 2;
       while(nBytes / (nChannels * chunkSize) < 32 && chunkSize > 131072) chunkSize /= 2;
       while(nBytes / (nChannels * chunkSize) < 16 && chunkSize > 65536) chunkSize /= 2;
-      while(nBytes / (nChannels * chunkSize) < 8 && chunkSize > 32768) chunkSize /= 2;
+      if (!IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx906") &&
+          !IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx926") &&
+          !IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx928")) {
+        while(nBytes / (nChannels * chunkSize) < 8 && chunkSize > 32768) chunkSize /= 2;
+      }
     }
   } else if (info->algorithm == NCCL_ALGO_COLLNET_DIRECT) {
     // Optimize chunkSize / nSteps

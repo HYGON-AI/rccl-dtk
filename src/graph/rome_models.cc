@@ -31,6 +31,7 @@ THE SOFTWARE.
 #include <vector>
 #include <string.h>
 #include "rome_models.h"
+#include "rocm_smi_wrap.h"
 
 struct rcclRomeModel {
   int nGpus;
@@ -2576,6 +2577,47 @@ static struct rcclRomeModel gio16gColumbaModel = {
   .options = "",
 };
 
+static struct rcclRomeModel hygonBWSingleNodeModel = {
+  .ringBase = "0 1 3 2 4 6 5 7"
+};
+
+static struct rcclRomeModel hygonBWSingleNode4gpuModel = {
+  .ringBase = "0 1 2 3|0 1 3 2|0 2 3 1|0 3 2 1"
+};
+
+static struct rcclRomeModel hygonBWSingleNode4hylink8gpuModel = {
+  .ringBase = "0 1 2 3 4 5 6 7|7 6 5 4 3 2 1 0|0 2 3 1 4 6 7 5|5 7 6 4 1 3 2 0|0 3 1 2 4 7 5 6|6 5 7 4 2 1 3 0"
+};
+
+static struct rcclRomeModel hygonBWMultiNodes4NicModel = {
+  .ringBase ="N0 0 7 5 6 4 3 1 2 N0|"
+             "N1 3 4 6 5 7 0 2 1 N1|"
+             "N2 4 3 1 2 0 7 5 6 N2|"
+             "N3 7 0 2 1 3 4 6 5 N3|"
+};
+
+static struct rcclRomeModel hygonBWMultiNodes8NicModel = {
+  .ringBase ="N0 0 7 6 5 4 3 2 1 N0|"
+             "N1 1 2 3 4 5 6 7 0 N1|"
+             "N2 2 1 0 7 6 5 4 3 N2|"
+             "N3 3 4 5 6 7 0 1 2 N3|"
+             "N4 4 3 2 1 0 7 6 5 N4|"
+             "N5 5 6 7 0 1 2 3 4 N5|"
+             "N6 6 5 4 3 2 1 0 7 N6|"
+             "N7 7 0 1 2 3 4 5 6 N7|"
+};
+
+static struct rcclRomeModel hygonBWMultiNodes9NicModel = {
+  .ringBase ="N1 0 7 6 5 4 3 2 1 N1|"
+             "N2 1 2 3 4 5 6 7 0 N2|"
+             "N3 2 1 0 7 6 5 4 3 N3|"
+             "N4 3 4 5 6 7 0 1 2 N4|"
+             "N5 4 3 2 1 0 7 6 5 N5|"
+             "N6 5 6 7 0 1 2 3 4 N6|"
+             "N7 6 5 4 3 2 1 0 7 N7|"
+             "N8 7 0 1 2 3 4 5 6 N8|"
+};
+
 ncclResult_t parseGIOTopos(struct ncclTopoSystem* system, struct ncclTopoGraph* graph) {
   ncclResult_t r;
   constexpr int NGPUS = 16;
@@ -2618,5 +2660,129 @@ ncclResult_t parseGIOTopos(struct ncclTopoSystem* system, struct ncclTopoGraph* 
   NCCLCHECKGOTO(parseGraph(gio16gColumbaModel.ringBase, system, graph, rdm, NULL, false), r, exit);
 
 exit:
+  return ncclSuccess;
+}
+
+bool isAllHylink(struct ncclTopoSystem* system){
+  int ngpus = system->nodes[GPU].count;
+  // Check for direct HYLink connections
+  for (int cudaDev1=0; cudaDev1<ngpus; cudaDev1++) {
+    struct ncclTopoNode *node = system->nodes[GPU].nodes+cudaDev1;
+    for (int cudaDev2=0; cudaDev2<ngpus; cudaDev2++) {
+      if (cudaDev1 == cudaDev2) continue;
+      struct ncclTopoLink* link = node->paths[GPU][cudaDev2].list[0];
+      struct ncclTopoNode* remNode = link->remNode;
+      if (node->paths[GPU][cudaDev2].count == 1 && remNode->type != NVS) {
+        if (link->type != LINK_NVL) return false;
+      } else {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool isHylinkMixPCIe(struct ncclTopoSystem* system){
+  int ngpus = system->nodes[GPU].count;
+  bool hylinkUsed;
+  bool pcieUsed;
+  // Check for direct HYLink connections
+  for (int cudaDev1=0; cudaDev1<ngpus; cudaDev1++) {
+    struct ncclTopoNode *node = system->nodes[GPU].nodes+cudaDev1;
+    hylinkUsed = false;
+    pcieUsed = false;
+    for (int cudaDev2=0; cudaDev2<ngpus; cudaDev2++) {
+      if (cudaDev1 == cudaDev2) continue;
+      struct ncclTopoLink* link = node->paths[GPU][cudaDev2].list[0];
+      struct ncclTopoNode* remNode = link->remNode;
+      if (node->paths[GPU][cudaDev2].count == 1 && remNode->type != NVS) {
+        if (link->type == LINK_NVL) {
+          hylinkUsed = true;
+        }
+      } else if (link->type == LINK_PCI) {
+        pcieUsed = true;
+      }
+      if (hylinkUsed && pcieUsed) return true;
+    }
+  }
+  return false;
+}
+
+bool is4GpuHylink(){
+  uint32_t gpuCount;
+  uint32_t linkNum, linkState;
+  uint32_t hyLinkMaxGroupId = 0;
+  NCCLCHECK(rocm_smi_getNumDevice(&gpuCount));
+
+  for (int rocmDev = 0; rocmDev < gpuCount; rocmDev++) {
+    // linkNum may be 0 when no hylink
+    NCCLCHECK(rocm_smi_dev_xhcl_link_number_get(rocmDev, &linkNum));
+    if(linkNum <= 0) {
+      // no hylink
+      break;
+    }
+    // get max group id
+    // linkState may be 0 when no hylink, otherwise is group id of link
+    NCCLCHECK(rocm_smi_dev_xhcl_link_state_get(rocmDev, 0, &linkState));
+    if (linkState <= 0) {
+      // no hylink
+      break;
+    } else if(hyLinkMaxGroupId < linkState) {
+      hyLinkMaxGroupId = linkState;
+    } 
+  }
+  if (hyLinkMaxGroupId != 0 && gpuCount/hyLinkMaxGroupId == 4) {
+    return true;
+  } else {
+    return false;
+  }
+    
+}
+
+bool isHSW(struct ncclTopoSystem* system){
+  int ngpus = system->nodes[GPU].count;
+  // Check for direct HYSwitch connections
+  for (int cudaDev1=0; cudaDev1<ngpus; cudaDev1++) {
+    struct ncclTopoNode *node = system->nodes[GPU].nodes+cudaDev1;
+    for (int cudaDev2=0; cudaDev2<ngpus; cudaDev2++) {
+      if (cudaDev1 == cudaDev2) continue;
+      struct ncclTopoLink* link = node->paths[GPU][cudaDev2].list[0];
+      struct ncclTopoNode* remNode = link->remNode;
+      if (node->paths[GPU][cudaDev2].count == 2 && remNode->type == NVS) {
+        if (link->type != LINK_NVL) return false;
+      } else {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* graph) {
+  ncclResult_t r;
+  constexpr int NGPUS = 8;
+  const int ngpus = system->nodes[GPU].count;
+  const int ncpus = system->nodes[CPU].count;
+  const int nnets = system->nodes[NET].count;
+    
+  if (IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx93")){
+    if (isHylinkMixPCIe(system)) {
+      system->tuning = 3;
+    } else {
+      system->tuning = 1;
+    }
+  } else if (IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx926") || IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx928") )
+    system->tuning = 2;
+  else
+    return ncclSuccess;
+
+  if (ngpus == 8 && system->nHosts == 1){
+    if (isHSW(system)) {
+      NCCLCHECK(parseGraph(hygonBWSingleNodeModel.ringBase, system, graph, NULL, NULL, false));
+    } else if (is4GpuHylink()) {
+      NCCLCHECK(parseGraph(hygonBWSingleNode4hylink8gpuModel.ringBase, system, graph, NULL, NULL, false));
+    }
+  }
+
   return ncclSuccess;
 }

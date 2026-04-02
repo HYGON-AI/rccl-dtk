@@ -36,6 +36,7 @@ namespace {
     ssize_t offset;
     int nelem;
     int chunk;
+    int minChunkSize;
 
 
 #if defined(ENABLE_NPKIT) && defined(ENABLE_NPKIT_EVENT_TIME_SYNC_CPU)
@@ -61,6 +62,7 @@ namespace {
     // Coverity reports that the callee treats &ring->next as an array.  However, due to the use of
     // FanSymmetric<1>, only the first element is ever accessed, so it's fine.
     // coverity[callee_ptr_arith:FALSE]
+    minChunkSize = nthreads*(Proto::calcBytePerGrain()/sizeof(T));
     Primitives<T, RedOp, FanSymmetric<1>, 0, Proto, 0, false, RCCLMetadata, Pipeline, USE_ACC> prims
       (tid, nthreads, &ring->prev, &ring->next, work->sendbuff, work->recvbuff, work->redOpArg, 0, work->connIndex, work->connIndex, work);
 
@@ -74,7 +76,7 @@ namespace {
       ssize_t remCount = channelCount - elemOffset;
       ssize_t chunkOffset;
 
-      if (remCount < loopCount) chunkCount = alignUp(divUp(remCount, nranks), 16/sizeof(T));
+      if (remCount < loopCount) chunkCount = alignUp(divUp(remCount, nranks*minChunkSize)*minChunkSize, 16/sizeof(T));
 
       auto modRanks = [&]__device__(int r)->int {
         return r - (r >= nranks ? nranks : 0);
