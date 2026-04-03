@@ -13,6 +13,7 @@
 #include <cuda_runtime.h>
 
 #include "core.h"
+#include "hsa/hsa_ext_amd.h"
 
 #if CUDART_VERSION < 12030
 // MNNVL: FABRIC handle support lifted from CUDA 12.3
@@ -38,6 +39,7 @@ typedef union {
     ncclCuDesc cuDesc;
     CUmemGenericAllocationHandle memHandle;
   };
+  hsa_amd_ipc_memory_t hsaIpcHandle;
 } ncclIpcDesc;
 
 enum ncclIpcRegType {
@@ -58,7 +60,7 @@ struct ncclIpcRegInfo {
   struct ncclIpcImpInfo impInfo;
 };
 
-ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int directMap, ncclIpcDesc *ipcDesc, void **ptr);
+ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int directMap, ncclIpcDesc *ipcDesc, void **ptr, bool useXdp = false);
 ncclResult_t ncclP2pFreeShareableBuffer(ncclIpcDesc *ipcDesc);
 ncclResult_t ncclP2pImportShareableBuffer(struct ncclComm *comm, int peer, size_t size, ncclIpcDesc *ipcDesc, void **devMemPtr);
 ncclResult_t ncclIpcLocalRegisterBuffer(ncclComm* comm, const void* userbuff, size_t buffSize, int* peerRanks, int nPeers, ncclIpcRegType type, int* regBufFlag, uintptr_t* offsetOut, uintptr_t** peerRmtAddrsOut);

@@ -373,7 +373,21 @@ ncclResult_t ncclCudaCallocDebug(const char *filefunc, int line, T** ptr, size_t
   cudaStream_t stream = sideStream;
   if (stream == nullptr)
     CUDACHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+#if defined(HIP_UNCACHED_XDP_MEMORY)
+  if (flags == hipDeviceMallocUncachedXdp) {
+    cudaError_t ret = hipExtMallocWithFlags((void**)ptr, nelem*ncclSizeOfT<T>(), flags);
+    if (ret != cudaSuccess) {
+      *ptr = nullptr;
+      WARN("Failed to alloc xdp mem size %ld bytes ret %d, will fall back to using normal uncache memory", nelem*sizeof(T), ret);
+      return ncclSuccess;
+    }
+    INFO(NCCL_ALLOC, "%s:%d Alloc xdp mem size %ld pointer %p", filefunc, line, nelem*sizeof(T), *ptr);
+  } else {
+    CUDACHECKGOTO(hipExtMallocWithFlags((void**)ptr, nelem*ncclSizeOfT<T>(), flags), result, finish);
+  }
+#else
   CUDACHECKGOTO(hipExtMallocWithFlags((void**)ptr, nelem*ncclSizeOfT<T>(), flags), result, finish);
+#endif
   CUDACHECKGOTO(cudaMemsetAsync(*ptr, 0, nelem*ncclSizeOfT<T>(), stream), result, finish);
   CUDACHECKGOTO(cudaStreamSynchronize(stream), result, finish);
   if (sideStream == nullptr)

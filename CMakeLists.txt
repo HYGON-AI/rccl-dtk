@@ -45,6 +45,8 @@ option(FAULT_INJECTION                         "Enable fault injection"         
 option(QUIET_WARNINGS                          "Supress compiler warnings"                     ON)
 option(SUPPORT_XHCL_TOPO                       "Support Detect Hyswitch"                       ON)
 option(USE_RCCL_FP8                            "Compile with RCCL fp8"                         OFF)
+option(SUPPORT_PCIE_CHANNEL                    "Support PCIE CHANNEL"                          ON)
+option(HIP_UNCACHED_XDP_MEMORY                 "Support XDP"                                   ON)
 
 # Default GPU architectures to build
 #==================================================================================================
@@ -1115,6 +1117,12 @@ if (HIP_HOST_UNCACHED_MEMORY)
 else()
   message(STATUS "HIP_HOST_UNCACHED_MEMORY disabled")
 endif()
+if(${HIP_UNCACHED_XDP_MEMORY})
+  target_compile_definitions(rccl PRIVATE HIP_UNCACHED_XDP_MEMORY)
+  message(STATUS "HIP_UNCACHED_XDP_MEMORY enabled")
+else()
+  message(STATUS "HIP_UNCACHED_XDP_MEMORY disabled")
+endif()
 if (BUILD_BFD)
   if (HAVE_BFD)
     target_compile_definitions(rccl PRIVATE HAVE_BFD)
@@ -1250,6 +1258,9 @@ endif()
 if (FAULT_INJECTION)
   target_compile_definitions(rccl PRIVATE ENABLE_FAULT_INJECTION)
   message(STATUS "Fault injection enabled")
+endif()
+if (SUPPORT_PCIE_CHANNEL)
+  target_compile_definitions(rccl PRIVATE SUPPORT_PCIE_CHANNEL)
 endif()
 
 ## Set RCCL linked library directories
