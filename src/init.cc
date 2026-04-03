@@ -1089,6 +1089,8 @@ NCCL_PARAM(MNNVLEnable, "MNNVL_ENABLE", 2);
 #define TIMER_INIT_ALLOC 7
 #define TIMERS_INIT_COUNT 8
 
+RCCL_PARAM(SharedNetEnable, "SHARED_NET_ENABLE", 0);
+RCCL_PARAM(CollSimpleChannels, "SIMPLE_CHANNELS", -2);
 static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* parent, uint64_t timers[TIMERS_INIT_COUNT]) {
   // We use 2 AllGathers
   // 1. { peerInfo, comm, compCap}
@@ -1651,7 +1653,13 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
 
   // Compute nChannels per peer for p2p
   NCCLCHECKGOTO(ncclTopoComputeP2pChannels(comm), ret, fail);
-
+  comm->CollSimpleChannels = comm->nChannels;
+  // set Simple nChannels to rcclParamCollSimpleChannels() when gcn=gfx936
+  if(IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936")){
+    int CollSimpleChannels = 16;
+    if(rcclParamCollSimpleChannels() != -2) CollSimpleChannels = rcclParamCollSimpleChannels();
+    if(CollSimpleChannels <= comm->nChannels && CollSimpleChannels > 0) comm->CollSimpleChannels = CollSimpleChannels;
+  }
   /* until now, all info of comm should be known. We can initialize shared resources and
    * map localRanks to top parent local ranks. NOTE: this shareRes init must be put before
    * all proxy operations. */
@@ -1786,11 +1794,11 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
         NCCLCHECKGOTO(ncclCollNetDirectBufferSetup(comm), ret, fail);
       }
     }
-
-    // Connect to local net proxy
-    NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_NET, 1, comm->rank, &proxyConn), ret, fail);
-    NCCLCHECKGOTO(ncclProxyCallBlocking(comm, &proxyConn, ncclProxyMsgSharedInit, &comm->p2pnChannels, sizeof(int), NULL, 0), ret, fail);
-
+    if(rcclParamSharedNetEnable()) {
+      // Connect to local net proxy
+      NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_NET, 1, comm->rank, &proxyConn), ret, fail);
+      NCCLCHECKGOTO(ncclProxyCallBlocking(comm, &proxyConn, ncclProxyMsgSharedInit, &comm->p2pnChannels, sizeof(int), NULL, 0), ret, fail);
+    }
     // Then to remote ones when using PXN
     if (ncclPxnDisable(comm) == 0) {
       int nranks;
