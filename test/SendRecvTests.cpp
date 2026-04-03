@@ -100,7 +100,7 @@ namespace RcclUnitTesting
 
   TEST(SendRecv, UserBufferRegister)
   {
-    setenv("RCCL_ENABLE_INTRANET", "1", 1);
+    // setenv("RCCL_ENABLE_INTRANET", "1", 1);
     TestBed testBed;
 
     // Configuration

@@ -869,6 +869,14 @@ namespace RcclUnitTesting
         CHECK_HIP(hipGraphLaunch(this->graphExecs[groupId][localRank][streamIdx], this->streams[groupId][localRank][streamIdx]));
       }
     }
+    //Single-process multi-card communication requires synchronization to ensure the completion of communication
+    if(this->deviceIds.size() != 1){
+      for (int localRank = 0; localRank < this->deviceIds.size(); ++localRank)
+      {
+        for (int i = 0; i < this->numStreamsPerGroup[groupId]; ++i)
+          CHECK_HIP(hipStreamSynchronize(this->streams[groupId][localRank][i]));
+      }  
+    }
 
     if (this->verbose) INFO("Child %d finishes LaunchGraphs for group %d\n", this->childId, groupId);
     return TEST_SUCCESS;
@@ -985,11 +993,6 @@ namespace RcclUnitTesting
       }
     }
 
-    for (int localRank = 0; localRank < this->deviceIds.size(); ++localRank)
-    {
-      for (int i = 0; i < this->numStreamsPerGroup[groupId]; ++i)
-        CHECK_HIP(hipStreamSynchronize(this->streams[groupId][localRank][i]));
-    }    
 
     this->graphs[groupId].clear();
     this->graphExecs[groupId].clear();
