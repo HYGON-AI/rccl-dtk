@@ -400,6 +400,8 @@ struct ncclProxyConnection {
   int needsProxyProgress;
   int connIndex;
   int channelId;
+  int resMemType;
+  struct ncclComm* comm;
 };
 
 typedef ncclResult_t (*threadFunc_t)(struct ncclProxyArgs*);
