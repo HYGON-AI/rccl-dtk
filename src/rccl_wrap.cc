@@ -426,7 +426,10 @@ void rcclSetDefaultBuffSizes(struct ncclComm* comm, int defaultBuffSizes[]) {
   if (maxNthreads[NCCL_PROTO_SIMPLE] == 0) rcclGetMaxNthreads(comm, maxNthreads);
   defaultBuffSizes[NCCL_PROTO_LL]     = NCCL_LL_LINES_PER_THREAD*maxNthreads[NCCL_PROTO_LL]*NCCL_STEPS*sizeof(union ncclLLFifoLine);
   defaultBuffSizes[NCCL_PROTO_LL128]  = NCCL_LL128_ELEMS_PER_THREAD*maxNthreads[NCCL_PROTO_LL128]*NCCL_STEPS*sizeof(uint64_t);
-  defaultBuffSizes[NCCL_PROTO_SIMPLE] = (1 << 22); /* 4MiB */
+  if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936"))
+    defaultBuffSizes[NCCL_PROTO_SIMPLE] = (1 << 20); /* 1MiB */
+  else
+    defaultBuffSizes[NCCL_PROTO_SIMPLE] = (1 << 22); /* 4MiB */
 }
 
 ncclResult_t rcclFuncMaxSendRecvCount(ncclFunc_t func, int nRanks, size_t count, size_t& maxCount) {
