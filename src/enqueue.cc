@@ -509,6 +509,7 @@ ncclResult_t ncclPrepareTasks(struct ncclComm* comm, bool* algoNeedConnect, bool
         agg.devFuncId = ncclDevFuncId(agg.func, agg.opDev.op, agg.datatype, agg.algorithm, agg.protocol, 1, agg.pipeline);
       else
         agg.devFuncId = ncclDevFuncId(agg.func, agg.opDev.op, agg.datatype, agg.algorithm, agg.protocol, 0, agg.pipeline);
+      comm->devComm->funcindex = (((agg.func*ncclNumDevRedOps + agg.opDev.op) * ncclNumTypes + agg.datatype) * (NCCL_NUM_ALGORITHMS-1) + agg.algorithm) * NCCL_NUM_PROTOCOLS + agg.protocol;
       if (agg.devFuncId < 0) {
         WARN("%s: unsupported collective. Please ensure the collective has been enabled in build.", __func__);
         return ncclInvalidUsage;
@@ -2622,6 +2623,7 @@ static ncclResult_t hostToDevRedOp(
 // thus don't need a task.
 static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
   struct ncclKernelPlanner *planner = &comm->planner;
+  comm->devComm->nBytes = info->count*ncclTypeSize(info->datatype);
 
   if (info->coll == ncclFuncSend || info->coll == ncclFuncRecv) {
     int peer = info->root;

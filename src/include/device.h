@@ -569,6 +569,8 @@ struct ncclDevComm {
   int nRanks;
   int node;
   int nNodes;
+  int funcindex;
+  uint64_t nBytes;
   int buffSizes[NCCL_NUM_PROTOCOLS];
   int p2pChunkSize;
   int isAllNvlink;
