@@ -29,6 +29,7 @@ typedef enum ibv_return_enum
     IBV_SUCCESS = 0,                   //!< The operation was successful
 } ibv_return_t;
 
+ncclResult_t wrap_mlx5_symbols(void);
 ncclResult_t wrap_ibv_symbols(void);
 /* NCCL wrappers of IB verbs functions */
 ncclResult_t wrap_ibv_fork_init(void);
