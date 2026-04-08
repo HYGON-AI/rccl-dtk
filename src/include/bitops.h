@@ -269,7 +269,7 @@ static __host__ __device__ int log2Down(Int x) {
   }
 #else
   if (x == 0) {
-    return -1;
+    return 0;
   } else if (sizeof(Int) <= sizeof(unsigned int)) {
     w = 8*sizeof(unsigned int);
     n = __builtin_clz((unsigned int)x);

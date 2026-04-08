@@ -24,7 +24,6 @@
     const int wid = threadIdx.x%WARP_SIZE; \
     if (wid == 0) { \
       (BARRIER_NEXT) += (NWORKERS) / WARP_SIZE; \
-      __THREAD_FENCE; \
       __hip_atomic_fetch_add((BARRIERS_PTR), 1, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_WORKGROUP); \
       int spins = 0; \
       int rate_limit = 50; \
@@ -44,6 +43,7 @@
         __builtin_amdgcn_s_sleep(1); \
       } \
       __asm__ __volatile__("s_wakeup"); \
+      __THREAD_FENCE; \
     } \
   } \
 } while (0)
