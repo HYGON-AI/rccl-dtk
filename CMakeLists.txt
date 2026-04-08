@@ -551,6 +551,11 @@ set(SRC_FILES
   src/include/mlx5/mlx5dvcore.h
   src/include/mlx5/mlx5dvsymbols.h
   src/include/mlx5/mlx5dvwrap.h
+  src/include/hipprof/hip_profile_common.h
+  src/include/hipprof/hip_prof_rccl.h
+  src/include/hipprof/hip_prof_rccl_api.h
+  src/include/hipprof/hip_prof_rccl_param.h
+  src/include/hipprof/hip_prof_rccl_str.h
   src/include/msccl/msccl_lifecycle.h
   src/include/msccl/msccl_parser.h
   src/include/msccl/msccl_scheduler.h
@@ -622,6 +627,8 @@ set(SRC_FILES
   src/misc/api_trace.cc
 # src/misc/cudawrap.cc
 # src/misc/gdrwrap.cc
+  src/misc/hip_prof_rccl.cc
+  src/misc/hip_prof_rccl_param.cc
   src/misc/ibvsymbols.cc
   src/misc/ibvwrap.cc
   src/misc/ipcsocket.cc

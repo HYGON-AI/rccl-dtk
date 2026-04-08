@@ -163,4 +163,25 @@ teardown:
   return ncclSystemError;
 }
 
+ncclResult_t buildMlx5Symbols(struct ncclMlx5Symbols* mlx5Symbols) {
+  static void* mlx5handle = NULL;
+  mlx5handle = dlopen("libmlx5.so", RTLD_NOW);
+  if (!mlx5handle) {
+    mlx5handle = dlopen("libmlx5.so.1", RTLD_NOW);
+    if (!mlx5handle) {
+      INFO(NCCL_INIT, "Failed to open libmlx5.so[.1], skip mlx5 features");
+      return ncclSuccess;
+    }
+  }
+  void* tmp = dlsym(mlx5handle, "mlx5dv_modify_qp_udp_sport");
+  if (tmp == NULL) {
+    INFO(NCCL_INIT, "mlx5dv_modify_qp_udp_sport not found, skip mlx5 features");
+    mlx5Symbols->mlx5dv_modify_qp_udp_sport = NULL;
+    if (mlx5handle != NULL) dlclose(mlx5handle);
+    return ncclSuccess;
+  }
+  mlx5Symbols->mlx5dv_modify_qp_udp_sport = (int (*)(struct ibv_qp*, uint16_t))tmp;
+  return ncclSuccess;
+}
+
 #endif
