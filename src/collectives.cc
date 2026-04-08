@@ -12,6 +12,7 @@
 #include "api_trace.h"
 #include "nvtx_payload_schemas.h"
 #include "msccl/msccl_lifecycle.h"
+#include "hipprof/hip_prof_rccl_api.h"
 
 using namespace rccl;
 
@@ -128,6 +129,7 @@ ncclResult_t ncclAllGather_impl(const void* sendbuff, void* recvbuff, size_t sen
      return ncclSuccess;
   } else {
      // use ring allgather
+     RCCL_CB_SPAWNER_OBJECT(ncclAllGather, &info);
      return ncclEnqueueCheck(&info);
   }
 }
@@ -162,6 +164,7 @@ ncclResult_t ncclAllReduce_impl(const void* sendbuff, void* recvbuff, size_t cou
       }
     }
   }
+  RCCL_CB_SPAWNER_OBJECT(ncclAllReduce, &info);
 
   return ncclEnqueueCheck(&info);
 }
@@ -303,6 +306,7 @@ ncclResult_t ncclBroadcast_impl(const void* sendbuff, void* recvbuff, size_t cou
       sendbuff, nullptr, nullptr, recvbuff, nullptr, nullptr,
       count, datatype, root, 0, ncclSum, mscclFuncBroadcast, comm, stream);
   }
+  RCCL_CB_SPAWNER_OBJECT(ncclBroadcast, &info);
 
   return ncclEnqueueCheck(&info);
 }
@@ -374,6 +378,7 @@ ncclResult_t ncclReduce_impl(const void* sendbuff, void* recvbuff, size_t count,
       sendbuff, nullptr, nullptr, recvbuff, nullptr, nullptr,
       count, datatype, root, 0, op, mscclFuncReduce, comm, stream);
   }
+  RCCL_CB_SPAWNER_OBJECT(ncclReduce, &info);
 
   return ncclEnqueueCheck(&info);
 }
@@ -401,6 +406,7 @@ ncclResult_t ncclReduceScatter_impl(const void* sendbuff, void* recvbuff, size_t
       sendbuff, nullptr, nullptr, recvbuff, nullptr, nullptr,
       recvcount, datatype, 0, 0, op, mscclFuncReduceScatter, comm, stream);
   }
+  RCCL_CB_SPAWNER_OBJECT(ncclReduceScatter, &info);
 
   return ncclEnqueueCheck(&info);
 }
@@ -466,6 +472,7 @@ ncclResult_t ncclSend_impl(const void* sendbuff, size_t count, ncclDataType_t da
       sendbuff, nullptr, nullptr, nullptr, nullptr, nullptr,
       count, datatype, 0, peer, ncclSum, mscclFuncSend, comm, stream);
   }
+  RCCL_CB_SPAWNER_OBJECT(ncclSend, &info);
 
   return ncclEnqueueCheck(&info);
 }
@@ -492,6 +499,7 @@ ncclResult_t ncclRecv_impl(void* recvbuff, size_t count, ncclDataType_t datatype
       nullptr, nullptr, nullptr, recvbuff, nullptr, nullptr,
       count, datatype, 0, peer, ncclSum, mscclFuncRecv, comm, stream);
   }
+  RCCL_CB_SPAWNER_OBJECT(ncclRecv, &info);
 
   return ncclEnqueueCheck(&info);
 }

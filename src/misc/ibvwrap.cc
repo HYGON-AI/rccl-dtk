@@ -19,6 +19,17 @@ static pthread_once_t initOnceControl = PTHREAD_ONCE_INIT;
 static ncclResult_t initResult;
 struct ncclIbvSymbols ibvSymbols;
 
+// MLX5 symbols
+struct ncclMlx5Symbols mlx5Symbols;
+static pthread_once_t initMlx5OnceControl = PTHREAD_ONCE_INIT;
+static ncclResult_t initMlx5Result;
+
+ncclResult_t wrap_mlx5_symbols(void) {
+  pthread_once(&initMlx5OnceControl,
+               [](){ initMlx5Result = buildMlx5Symbols(&mlx5Symbols); });
+  return initMlx5Result;
+}
+
 ncclResult_t wrap_ibv_symbols(void) {
   pthread_once(&initOnceControl,
                [](){ initResult = buildIbvSymbols(&ibvSymbols); });
