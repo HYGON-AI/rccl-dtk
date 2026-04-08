@@ -141,7 +141,7 @@ private:
         __builtin_amdgcn_s_sleep(1);
         connStepCache = loadStepValue(connStepPtr);
         if (checkAbort(flags, Aborted, spins)) break;
-        //if (spins == 0) printf("r=%d b=%d t=%d SPUN OUT got=%d want=%d\n", ncclShmem.comm.rank, blockIdx.x, threadIdx.x, int(connStepCache + (isSendNotRecv ? NCCL_STEPS : 0)), int(step+StepPerSlice));
+        //if (spins == 0) DEVICE_PRINTF("r=%d b=%d t=%d SPUN OUT got=%d want=%d\n", ncclShmem.comm.rank, blockIdx.x, threadIdx.x, int(connStepCache + (isSendNotRecv ? NCCL_STEPS : 0)), int(step+StepPerSlice));
         if (spins == 0 && repeat > 0) {
           repeat --;
           traceData(__LINE__, threadIdx.x, int(connStepCache + (isSendNotRecv ? NCCL_STEPS : 0)), int(step+StepPerSlice));
@@ -786,7 +786,7 @@ public:
         8; // Allows for all roles (WaitRecv/WaitSend/PostRecv/PostSend) within a single warp
       static_assert(MaxSend <= ThreadPerSync && MaxRecv <= ThreadPerSync, "Not enough threads to cover all peers");
 
-      assert(2*(nrecv+nsend) <= nthreads); // Ensure no thread is assigned more than one role.
+      DEVICE_ASSERT(2*(nrecv+nsend) <= nthreads); // Ensure no thread is assigned more than one role.
       // Coverity assumes that index will equal tid based on the line below, but it doesn't consider the setting
       // of flags.  This results in multiple false positive overruns being reported here and in all_reduce.h.
       // Unfortunately, we've been unsuccessful in trying to silence them with a single directive here so
