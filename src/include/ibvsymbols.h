@@ -40,7 +40,14 @@ struct ncclIbvSymbols {
   int (*ibv_internal_set_ece)(struct ibv_qp *qp, struct ibv_ece *ece);
 };
 
+struct ncclMlx5Symbols {
+  int (*mlx5dv_modify_qp_udp_sport)(struct ibv_qp* qp, uint16_t udp_sport);
+};
+
 /* Constructs IB verbs symbols per rdma-core linking or dynamic loading mode */
 ncclResult_t buildIbvSymbols(struct ncclIbvSymbols* ibvSymbols);
+
+/* Constructs MLX5 symbols */
+ncclResult_t buildMlx5Symbols(struct ncclMlx5Symbols* mlx5Symbols);
 
 #endif  // NCCL_IBV_SYMBOLS_H_
