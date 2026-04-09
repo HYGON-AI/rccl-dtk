@@ -178,7 +178,7 @@ namespace RcclUnitTesting
     std::vector<hipStream_t> stream(numRanks);
 
     char *proto = std::getenv("NCCL_PROTO");
-    const char* protocolList[3] = {"LL", "Simple"};
+    const char* protocolList[2] = {"LL", "Simple"};
 
     for (auto p : protocolList)
     {
