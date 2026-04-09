@@ -16,6 +16,9 @@
 #define NCCL_LL128_ALIGNMENT_PER_WARP 480
 #define NCCL_SIMPLE_ALIGNMENT (WARP_SIZE * 8LL * 16LL)
 #define NCCL_BYTES_ALIGNMENT 16
+#define _32KB  (1 << 15)   /*  32KiB */
+#define _2MB   (1 << 21)   /*   2MiB */
+#define _128MB (1 << 27)   /* 128MiB */
 
 void* rcclGetKernelIndex(int unroll, bool useCollTrace, struct ncclTaskColl* task = NULL);
 
