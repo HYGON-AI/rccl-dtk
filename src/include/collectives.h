@@ -12,6 +12,8 @@
 #include "nccl.h"
 #include "nccl_common.h"
 #include "device.h"
+#include <stack>
+#include <thread>
 
 #define NCCL_MAX_NET_SIZE (1024*1024*1024L) // Rather than send INT_MAX which is 2G-1, send a power of two.
 
@@ -81,6 +83,19 @@ struct ncclConnFifo {
   ssize_t size;
   void* ptr;
 };
+
+typedef enum ncclP2pInfo {
+  P2pGather,
+  P2pScatter,         
+  P2pAllToAll,         
+  P2pAllToAllv,        
+  P2pInvalid
+} ncclP2pInfo_t;
+
+extern thread_local ncclP2pInfo_t g_ncclParentP2p;
+inline void pushParentP2p(ncclP2pInfo_t func) { g_ncclParentP2p = func; }
+inline void popParentP2p() { g_ncclParentP2p = P2pInvalid; }
+inline ncclP2pInfo_t currentParentP2p() { return g_ncclParentP2p; }
 
 #include <stdio.h>
 
