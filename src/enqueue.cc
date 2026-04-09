@@ -2105,7 +2105,17 @@ static ncclResult_t topoGetAlgoInfo(
   TRACE(NCCL_COLL, "%ld Bytes -> Algo %d proto %d time %f", nBytes, info->algorithm, info->protocol, time);
 
   int nc = comm->nChannels;
-  if (info->protocol == NCCL_PROTO_SIMPLE) nc = comm->CollSimpleChannels;
+  if (info->protocol == NCCL_PROTO_SIMPLE) {
+    nc = comm->CollSimpleChannels;
+    // 针对reduce和broadcast特性定制tuning
+    if (comm->nNodes > 1 && info->func <= ncclFuncReduce && info->count*ncclTypeSize(info->datatype) < 1*1024*1024){
+      nc = 1;
+    }
+    if (comm->nNodes > 1 && info->func <= ncclFuncAllReduce && info->count*ncclTypeSize(info->datatype) > 32*1024*1024 
+      && IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938")) {
+      nc = 16;
+    }
+  }
   int nt = comm->maxThreads[info->algorithm][info->protocol];
   int threadThreshold = comm->threadThresholds[info->algorithm][info->protocol];
   if (info->algorithm == NCCL_ALGO_COLLNET_DIRECT) {
