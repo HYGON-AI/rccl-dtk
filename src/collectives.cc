@@ -80,6 +80,7 @@ const char* ncclProtoToString(int proto) {
   }
 }
 
+thread_local ncclP2pInfo_t g_ncclParentP2p = P2pInvalid;
 NCCL_API(ncclResult_t, ncclAllGather, const void* sendbuff, void* recvbuff, size_t sendcount,
     ncclDataType_t datatype, ncclComm_t comm, cudaStream_t stream);
 
@@ -226,10 +227,12 @@ ncclResult_t ncclAllToAll_impl(const void* sendbuff, void* recvbuff, size_t coun
     if (count == 0) return ncclSuccess;
     if (!mscclIsCaller()) Recorder::instance().skip(true);
     NCCLCHECK(ncclGroupStart());
+    pushParentP2p(P2pAllToAll);
     for (int r=0; r<nRanks; r++) {
       NCCLCHECK(ncclSend(((char*)sendbuff)+r*rankOffset, count, datatype, r, comm, stream));
       NCCLCHECK(ncclRecv(((char*)recvbuff)+r*rankOffset, count, datatype, r, comm, stream));
     }
+    popParentP2p();
     NCCLCHECK(ncclGroupEnd());
     if (!mscclIsCaller()) Recorder::instance().skip(false);
     return ncclSuccess;
@@ -263,6 +266,7 @@ ncclResult_t ncclAllToAllv_impl(const void *sendbuff, const size_t sendcounts[],
   NCCLCHECK(ncclCommCount(comm, &nRanks));
   if (!mscclIsCaller()) Recorder::instance().skip(true);
   NCCLCHECK(ncclGroupStart());
+  pushParentP2p(P2pAllToAllv);
   for (int r=0; r<nRanks; r++) {
     NCCLCHECK(ncclSend(
         ((char*)sendbuff) + sdispls[r]*ncclTypeSize(datatype),
@@ -279,6 +283,7 @@ ncclResult_t ncclAllToAllv_impl(const void *sendbuff, const size_t sendcounts[],
         comm,
         stream));
   }
+  popParentP2p();
   NCCLCHECK(ncclGroupEnd());
   if (!mscclIsCaller()) Recorder::instance().skip(false);
   return ncclSuccess;
@@ -346,11 +351,13 @@ ncclResult_t ncclGather_impl(const void* sendbuff, void* recvbuff, size_t sendco
   NCCLCHECK(ncclCommUserRank(comm, &rank));
   if (!mscclIsCaller()) Recorder::instance().skip(true);
   NCCLCHECK(ncclGroupStart());
+  pushParentP2p(P2pGather);
   if (rank == root) {
     for (int r=0; r<nRanks; r++)
       NCCLCHECK(ncclRecv(((char*)recvbuff)+r*rankOffset, sendcount, datatype, r, comm, stream));
   }
   NCCLCHECK(ncclSend(sendbuff, sendcount, datatype, root, comm, stream));
+  popParentP2p();
   NCCLCHECK(ncclGroupEnd());
   if (!mscclIsCaller()) Recorder::instance().skip(false);
   return ncclSuccess;
@@ -439,11 +446,13 @@ ncclResult_t ncclScatter_impl(const void* sendbuff, void* recvbuff, size_t recvc
   NCCLCHECK(ncclCommUserRank(comm, &rank));
   if (!mscclIsCaller()) Recorder::instance().skip(true);
   NCCLCHECK(ncclGroupStart());
+  pushParentP2p(P2pScatter);
   if (rank == root) {
     for (int r=0; r<nRanks; r++)
       NCCLCHECK(ncclSend(((char*)sendbuff)+r*rankOffset, recvcount, datatype, r, comm, stream));
   }
   NCCLCHECK(ncclRecv(recvbuff, recvcount, datatype, root, comm, stream));
+  popParentP2p();
   NCCLCHECK(ncclGroupEnd());
   if (!mscclIsCaller()) Recorder::instance().skip(false);
   return ncclSuccess;
