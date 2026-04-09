@@ -247,6 +247,7 @@ struct ncclTaskP2p {
   int root;
   size_t bytes;
   uint64_t opCount;
+  ncclP2pInfo_t parentP2pType;
 
   // Profiler plugin
   int eActivationMask;
@@ -372,7 +373,7 @@ struct ncclKernelPlanner {
   //////////////////////////////////////////////////////////////////////////////
 
   struct Peer {
-    bool sendSeen, recvSeen;
+    uint64_t sendSeenMask, recvSeenMask;
     struct ncclIntruQueue<struct ncclTaskP2p, &ncclTaskP2p::next> sendQueue;
     struct ncclIntruQueue<struct ncclTaskP2p, &ncclTaskP2p::next> recvQueue;
   };
@@ -547,7 +548,10 @@ struct ncclComm {
   int nvlsHeads[MAXCHANNELS];
   // Channels (per peer) for p2p
   int p2pnChannels;
+  int oriP2pnChannels;
   int p2pnChannelsPerPeer;
+  int oriP2pnChannelsPerPeer;
+  bool autoPerPeerOn;
   int minLinkType; // 所有gpu间的最快的链接类型
 
   // Should this comm allocate LL buffers for network P2P connections?
