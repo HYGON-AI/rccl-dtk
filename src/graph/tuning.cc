@@ -652,6 +652,12 @@ ncclResult_t ncclTopoTuneModel(struct ncclComm* comm, int minCompCap, int maxCom
               if (p == NCCL_PROTO_SIMPLE) lat = rcclTuningModel[comm->topo->tuning].hwLat[hw[a]][NCCL_ALGO_TREE][p]; // Add some chunk latency, waiting for proper chunk modeling
               comm->latencies[coll][a][p] += nsteps*lat;
             }
+            if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936")) {
+              if (p == NCCL_PROTO_SIMPLE){
+                if (nNodes == 1) comm->latencies[coll][a][p] *= 0.62;
+                else comm->latencies[coll][a][p] *= 0.74;
+              }
+            }
           } else {
             // Inter-node rings still have to launch nsteps * net overhead.
             float netOverhead = 0.0;
@@ -670,6 +676,8 @@ ncclResult_t ncclTopoTuneModel(struct ncclComm* comm, int minCompCap, int maxCom
         } else if (a == NCCL_ALGO_TREE) {
           if ((IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx926") || IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx928")) && coll == ncclFuncAllReduce && nNodes == 1)
             intraLat *= 0.95;
+          if ((IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && coll == ncclFuncAllReduce && nNodes > 1))
+            intraLat *= 0.9;
           comm->latencies[coll][a][p] +=
             2 * ((nRanks/nNodes-1) * intraLat + log2i(nNodes) * interLat);
         } else if (a == NCCL_ALGO_COLLNET_DIRECT) {
