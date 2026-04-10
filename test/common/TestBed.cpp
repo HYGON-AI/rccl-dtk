@@ -4,6 +4,7 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 #include <unistd.h>
+#include <iomanip>
 #include "TestBed.hpp"
 #include <rccl/rccl.h>
 
