@@ -492,7 +492,7 @@ ncclResult_t ncclP2pImportInterNodeBuffer(uint64_t *paList, int cudaDev, void **
     return ncclInternalError;
   }
   
-  ret = pfn_ext_rpc_memory_attach((hsa_ext_rpc_memory_t*)paList, 1, &agent, ptr);
+  ret = pfn_hsa_ext_rpc_memory_attach((hsa_ext_rpc_memory_t*)paList, 1, &agent, ptr);
   if(ret != HSA_STATUS_SUCCESS) {
     WARN("failed to attach internode memory to dev %d, ret %d(inf 0x%lx, 0x%lx)", 
         cudaDev, ret, paList[0], paList[1]);
@@ -507,7 +507,7 @@ ncclResult_t ncclP2pImportInterNodeBuffer(uint64_t *paList, int cudaDev, void **
 ncclResult_t ncclP2pFreeInterNodeBuffer(void *ptr) {
   hsa_status_t ret;
   
-  ret = pfn_ext_rpc_memory_detach(ptr);
+  ret = pfn_hsa_ext_rpc_memory_detach(ptr);
   if(ret != HSA_STATUS_SUCCESS) {
     WARN("failed to free internode memory %p, return %d", ptr, ret);
     return ncclInternalError;
