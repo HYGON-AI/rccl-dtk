@@ -36,7 +36,7 @@ option(TRACE                                   "Enable additional tracing"      
 option(SUPPORT_XHCL_TOPO                       "Support Detect Hyswitch"                       ON)
 option(SUPPORT_PCIE_CHANNEL                    "Support PCIE CHANNEL"                          ON)
 option(SUPPORT_PLUGINS_SHCA                    "Support PLUGINS SHCA"                          OFF)
-option(SUPPORT_SUPER_NODE                      "Support SUPER NODE"                            OFF)
+option(SUPPORT_SUPER_NODE                      "Support SUPER NODE"                            ON)
 # Default GPU architectures to build
 #==================================================================================================
 set(DEFAULT_GPUS
