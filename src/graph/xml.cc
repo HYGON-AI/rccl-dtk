@@ -557,6 +557,10 @@ ncclResult_t ncclTopoGetXmlFromCpu(struct ncclXmlNode* cpuNode, struct ncclXml* 
     NCCLCHECK(xmlSetAttrInt(cpuNode, "modelid", modelId));
   }
 #endif
+  NCCLCHECK(xmlGetAttrIndex(cpuNode, "host_hash", &index));
+  if (index == -1) {
+    NCCLCHECK(xmlSetAttrLong(cpuNode, "host_hash", getHostHash()));
+  }
   return ncclSuccess;
 }
 
