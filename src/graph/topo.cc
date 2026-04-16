@@ -1643,7 +1643,7 @@ ncclResult_t ncclTopoCpuType(struct ncclTopoSystem* system, int* arch, int* vend
   return ncclSuccess;
 }
 
-NCCL_PARAM(IgnoreCpuAffinity, "IGNORE_CPU_AFFINITY", 0);
+NCCL_PARAM(IgnoreCpuAffinity, "IGNORE_CPU_AFFINITY", 1);
 
 ncclResult_t ncclTopoGetCpuAffinity(struct ncclTopoSystem* system, int rank, cpu_set_t* affinity) {
   struct ncclTopoNode* cpu = NULL, *gpu = NULL;
