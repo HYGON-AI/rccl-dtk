@@ -428,7 +428,7 @@ void rcclSetDefaultBuffSizes(struct ncclComm* comm, int defaultBuffSizes[]) {
   defaultBuffSizes[NCCL_PROTO_LL128]  = NCCL_LL128_ELEMS_PER_THREAD*maxNthreads[NCCL_PROTO_LL128]*NCCL_STEPS*sizeof(uint64_t);
   if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936"))
     defaultBuffSizes[NCCL_PROTO_SIMPLE] = (1 << 20); /* 1MiB */
-  else if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938"))
+  else if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") || (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") && comm->nNodes > 1))
     defaultBuffSizes[NCCL_PROTO_SIMPLE] = (1 << 21); /* 2MiB */
   else
     defaultBuffSizes[NCCL_PROTO_SIMPLE] = (1 << 22); /* 4MiB */
