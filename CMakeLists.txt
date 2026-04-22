@@ -48,6 +48,7 @@ option(SUPPORT_XHCL_TOPO                       "Support Detect Hyswitch"        
 option(USE_RCCL_FP8                            "Compile with RCCL fp8"                         OFF)
 option(SUPPORT_PCIE_CHANNEL                    "Support PCIE CHANNEL"                          ON)
 option(HIP_UNCACHED_XDP_MEMORY                 "Support XDP"                                   ON)
+option(SUPPORT_PLUGINS_SHCA                    "Support PLUGINS SHCA"                          OFF)
 
 # Default GPU architectures to build
 #==================================================================================================
@@ -64,6 +65,7 @@ include(CheckIncludeFiles)
 include(CheckSymbolExists)
 include(cmake/Dependencies.cmake) # GTest, rocm-cmake, rocm_local_targets
 include(cmake/CheckSymbolExistsNoWarn.cmake)
+include(ExternalProject)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -1478,6 +1480,10 @@ endif()
 
 ## Building RCCL RAS
 include(cmake/rcclRAS.cmake)
+
+if(SUPPORT_PLUGINS_SHCA)
+  add_subdirectory(tools/rccl-rdma-sharp-plugins-508-rccl-rdma-sharp-plugins-v8)
+endif()
 
 if(BUILD_TESTS)
   rocm_package_setup_component(clients)
