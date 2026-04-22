@@ -1,3 +1,6 @@
 [submodule "tools/googletest"]
 	path = tools/googletest
 	url = http://github.com/dcutoolkit/deeplearing/googletest
+[submodule "tools/rccl-rdma-sharp-plugins-508-rccl-rdma-sharp-plugins-v8"]
+	path = tools/rccl-rdma-sharp-plugins-508-rccl-rdma-sharp-plugins-v8
+	url = http://112.11.119.99:55080/dcutoolkit/deeplearing/rccl-rdma-sharp-plugins
