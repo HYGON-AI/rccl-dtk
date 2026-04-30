@@ -68,4 +68,8 @@ ncclResult_t ncclIpcGraphRegisterBuffer(ncclComm* comm, const void* userbuff, si
 
 ncclResult_t ncclIpcDeregBuffer(struct ncclComm* comm, struct ncclIpcRegInfo* regInfo);
 
+#ifdef RSMI_SUPPORT_SUPER_NODE
+bool isUniqueidInTopo(const char *uniqueId);
+#endif
+
 #endif

@@ -33,6 +33,11 @@ typedef hsa_status_t (*PFN_hsa_amd_memory_pool_get_info)(hsa_amd_memory_pool_t m
 typedef hsa_status_t (*PFN_hsa_amd_agent_iterate_memory_pools)(hsa_agent_t agent,hsa_status_t (*callback)(hsa_amd_memory_pool_t memory_pool, void* data),void* data);
 typedef hsa_status_t (*PFN_hsa_amd_memory_pool_allocate)(hsa_amd_memory_pool_t memory_pool, size_t size, uint32_t flags, void** ptr);
 typedef hsa_status_t (*PFN_hsa_amd_memory_pool_free)(void* ptr);
+#ifdef RSMI_SUPPORT_SUPER_NODE
+typedef hsa_status_t (*PFN_hsa_ext_rpc_memory_create)(void* ptr, size_t len, hsa_ext_rpc_memory_t *handle);
+typedef hsa_status_t (*PFN_hsa_ext_rpc_memory_attach)(const hsa_ext_rpc_memory_t *handle, uint32_t num_agents, const hsa_agent_t* mapping_agents, void** mapped_ptr);
+typedef hsa_status_t (*PFN_hsa_ext_rpc_memory_detach)(void* mapped_ptr);
+#endif
 
 struct hsaAgentInfo {
   int rank;
@@ -153,6 +158,11 @@ DECLARE_ROCM_PFN_EXTERN(hsa_amd_memory_pool_get_info);
 DECLARE_ROCM_PFN_EXTERN(hsa_amd_agent_iterate_memory_pools);
 DECLARE_ROCM_PFN_EXTERN(hsa_amd_memory_pool_allocate);
 DECLARE_ROCM_PFN_EXTERN(hsa_amd_memory_pool_free);
+#ifdef RSMI_SUPPORT_SUPER_NODE
+DECLARE_ROCM_PFN_EXTERN(hsa_ext_rpc_memory_create);
+DECLARE_ROCM_PFN_EXTERN(hsa_ext_rpc_memory_attach);
+DECLARE_ROCM_PFN_EXTERN(hsa_ext_rpc_memory_detach);
+#endif
 
 extern int ncclCuMemEnable();
 extern int ncclCuMemHostEnable();

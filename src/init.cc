@@ -950,6 +950,7 @@ NCCL_PARAM(MNNVLUUID, "MNNVL_UUID", -1);
 NCCL_PARAM(MNNVLCliqueId, "MNNVL_CLIQUE_ID", -1);
 
 static ncclResult_t fillInfo(struct ncclComm* comm, struct ncclPeerInfo* info, uint64_t commHash) {
+  hipUUID uuid;
   cudaDeviceProp prop;
   info->rank = comm->rank;
   info->cudaDev = comm->cudaDev;
@@ -957,6 +958,9 @@ static ncclResult_t fillInfo(struct ncclComm* comm, struct ncclPeerInfo* info, u
   NCCLCHECK(ncclGetVersion(&info->version));
   info->hostHash=getHostHash()+commHash;
   info->pidHash=getPidHash()+commHash;
+  CUDACHECK(hipDeviceGetUuid(&uuid, info->cudaDev));
+  memset(info->uniqueId, 0, 32);
+  memcpy(info->uniqueId, uuid.bytes, 16); // for hb
   info->cuMemSupport = ncclCuMemEnable();
   CUDACHECK(cudaGetDeviceProperties(&prop, comm->cudaDev));
   info->totalGlobalMem = ROUNDUP(prop.totalGlobalMem, (1L << 32));
@@ -1063,6 +1067,7 @@ static ncclResult_t computeBuffSizes(struct ncclComm* comm) {
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
     comm->buffSizes[p] = envs[p] != -2 ? envs[p] : defaults[p];
   }
+  if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && comm->nNodes > 1 && !comm->isSuperNode) comm->buffSizes[NCCL_PROTO_SIMPLE] = (1 << 20) ; // smaller for hb internode trans 
 
   if (comm->nNodes > 1) {
     rcclSetP2pNetChunkSize(comm, comm->p2pChunkSize);
@@ -1264,6 +1269,11 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   __atomic_store_n(&comm->peerInfoValid, true, __ATOMIC_RELEASE);
 
   comm->cuMemSupport = 1;
+  #ifdef RSMI_SUPPORT_SUPER_NODE
+  comm->isSuperNode = true;
+  #else
+  comm->isSuperNode = false;
+  #endif
   for (int i = 0; i < nranks; i++) {
     if (comm->peerInfo[i].version != comm->peerInfo[rank].version) {
       WARN("Mismatched NCCL version detected : rank %d version %d rank %d version %d",
@@ -1278,6 +1288,10 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
       ret = ncclInvalidUsage;
       goto fail;
     }
+    #ifdef RSMI_SUPPORT_SUPER_NODE
+    // check if all peers have uniqueId in topo, if not it is not a supernode system;
+    if (comm->isSuperNode && !isUniqueidInTopo(comm->peerInfo[i].uniqueId)) comm->isSuperNode = false;
+    #endif
   }
 
   // AllGather1 - end
@@ -1771,7 +1785,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   comm->CollSimpleChannels = comm->nChannels;
   // set Simple nChannels to rcclParamCollSimpleChannels() when gcn=gfx936
   if(IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936")){
-    int CollSimpleChannels = 16;
+    int CollSimpleChannels = comm->isSuperNode ? 32 : 16;  // supernode system set to 32 channels for CollSimple, otherwise set to 16
     if(rcclParamCollSimpleChannels() != -2) CollSimpleChannels = rcclParamCollSimpleChannels();
     if(CollSimpleChannels <= comm->nChannels && CollSimpleChannels > 0) comm->CollSimpleChannels = CollSimpleChannels;
   }
