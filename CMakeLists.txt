@@ -49,7 +49,7 @@ option(USE_RCCL_FP8                            "Compile with RCCL fp8"          
 option(SUPPORT_PCIE_CHANNEL                    "Support PCIE CHANNEL"                          ON)
 option(HIP_UNCACHED_XDP_MEMORY                 "Support XDP"                                   ON)
 option(SUPPORT_PLUGINS_SHCA                    "Support PLUGINS SHCA"                          OFF)
-
+option(SUPPORT_SUPER_NODE                      "Support SUPER NODE"                            ON)
 # Default GPU architectures to build
 #==================================================================================================
 set(DEFAULT_GPUS
@@ -1272,6 +1272,9 @@ if (FAULT_INJECTION)
 endif()
 if (SUPPORT_PCIE_CHANNEL)
   target_compile_definitions(rccl PRIVATE SUPPORT_PCIE_CHANNEL)
+endif()
+if (SUPPORT_SUPER_NODE)
+  target_compile_definitions(rccl PRIVATE RSMI_SUPPORT_SUPER_NODE)
 endif()
 
 ## Set RCCL linked library directories
