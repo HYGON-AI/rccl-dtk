@@ -36,6 +36,11 @@ DECLARE_ROCM_PFN(hsa_amd_memory_pool_get_info);
 DECLARE_ROCM_PFN(hsa_amd_agent_iterate_memory_pools);
 DECLARE_ROCM_PFN(hsa_amd_memory_pool_allocate);
 DECLARE_ROCM_PFN(hsa_amd_memory_pool_free);
+#ifdef RSMI_SUPPORT_SUPER_NODE
+DECLARE_ROCM_PFN(hsa_ext_rpc_memory_create);
+DECLARE_ROCM_PFN(hsa_ext_rpc_memory_attach);
+DECLARE_ROCM_PFN(hsa_ext_rpc_memory_detach);
+#endif
 
 
 static uint16_t version_major, version_minor;
@@ -128,32 +133,26 @@ static void initOnceFunc() {
 
   bool dmaBufSupport = false;
   hsa_status_t res;
-  /*
-   * Load ROCr driver library
-   */
-  char path[1024];
-  char *ncclCudaPath = getenv("RCCL_ROCR_PATH");
-  if (ncclCudaPath == NULL)
-    snprintf(path, 1024, "%s", "libhsa-runtime64.so");
-  else
-    snprintf(path, 1024, "%s%s", ncclCudaPath, "libhsa-runtime64.so");
 
-  hsaLib = dlopen(path, RTLD_LAZY);
-  if (hsaLib == NULL) {
-    WARN("Failed to find ROCm runtime library in %s (RCCL_ROCR_PATH=%s)", ncclCudaPath, ncclCudaPath);
-    goto error;
-  }
 
-  /*
-   * Load initial ROCr functions
-   */
+  LOAD_HSA_SYM(getHsaLib(), "hsa_init", pfn_hsa_init);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_agent_get_info", pfn_hsa_agent_get_info);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_iterate_agents", pfn_hsa_iterate_agents);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_ext_get_xhcl_link_count", pfn_hsa_ext_get_xhcl_link_count);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_ipc_memory_create", pfn_hsa_amd_ipc_memory_create);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_ipc_memory_attach", pfn_hsa_amd_ipc_memory_attach);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_ipc_memory_detach", pfn_hsa_amd_ipc_memory_detach);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_memory_pool_get_info", pfn_hsa_amd_memory_pool_get_info);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_agent_iterate_memory_pools", pfn_hsa_amd_agent_iterate_memory_pools);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_memory_pool_allocate", pfn_hsa_amd_memory_pool_allocate);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_memory_pool_free", pfn_hsa_amd_memory_pool_free);
+#ifdef RSMI_SUPPORT_SUPER_NODE
+  LOAD_HSA_SYM(getHsaLib(), "hsa_ext_rpc_memory_create", pfn_hsa_ext_rpc_memory_create);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_ext_rpc_memory_attach", pfn_hsa_ext_rpc_memory_attach);
+  LOAD_HSA_SYM(getHsaLib(), "hsa_ext_rpc_memory_detach", pfn_hsa_ext_rpc_memory_detach);
+#endif
 
-  pfn_hsa_init = (PFN_hsa_init) dlsym(hsaLib, "hsa_init");
-  if (pfn_hsa_init == NULL) {
-    WARN("Failed to load ROCr missing symbol hsa_init");
-    goto error;
-  }
-
+  pfn_hsa_init();  
   pfn_hsa_system_get_info = (PFN_hsa_system_get_info) dlsym(getHsaLib(), "hsa_system_get_info");
   if (pfn_hsa_system_get_info == NULL) {
     WARN("Failed to load ROCr missing symbol hsa_system_get_info");
@@ -176,17 +175,6 @@ static void initOnceFunc() {
     WARN("pfn_hsa_system_get_info failed with %d", res);
     goto error;
   }
-  
-  LOAD_HSA_SYM(getHsaLib(), "hsa_agent_get_info", pfn_hsa_agent_get_info);
-  LOAD_HSA_SYM(getHsaLib(), "hsa_iterate_agents", pfn_hsa_iterate_agents);
-  LOAD_HSA_SYM(getHsaLib(), "hsa_ext_get_xhcl_link_count", pfn_hsa_ext_get_xhcl_link_count);
-  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_ipc_memory_create", pfn_hsa_amd_ipc_memory_create);
-  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_ipc_memory_attach", pfn_hsa_amd_ipc_memory_attach);
-  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_ipc_memory_detach", pfn_hsa_amd_ipc_memory_detach);
-  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_memory_pool_get_info", pfn_hsa_amd_memory_pool_get_info);
-  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_agent_iterate_memory_pools", pfn_hsa_amd_agent_iterate_memory_pools);
-  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_memory_pool_allocate", pfn_hsa_amd_memory_pool_allocate);
-  LOAD_HSA_SYM(getHsaLib(), "hsa_amd_memory_pool_free", pfn_hsa_amd_memory_pool_free);
 
 
   INFO(NCCL_INIT, "ROCr version %d.%d", version_major, version_minor);
@@ -282,13 +270,6 @@ static void initOnceFunc() {
       INFO(NCCL_INIT,"Could not open kernel conf file");
     }
   }
-  /*
-   * Required to initialize the ROCr Driver.
-   * Multiple calls of hsa_init() will return immediately
-   * without making any relevant change
-   */
-  pfn_hsa_init();
-
   initResult = ncclSuccess;
   return;
 

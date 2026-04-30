@@ -449,6 +449,7 @@ struct ncclPeerInfo {
   // MNNVL support
   nvmlGpuFabricInfoV_t fabricInfo;
   int cuMemSupport;
+  char uniqueId[32];
   int version;
 };
 
@@ -480,6 +481,7 @@ struct ncclComm {
   hsa_agent_t hsaAgent;
   bool useXdp;
   int linkTopoType;
+  bool isSuperNode;  // if true, all peers have uniqueId in sys topo, which means it is a supernode system.
 
   ncclNet_t* ncclNet;
   int netPluginIndex;
