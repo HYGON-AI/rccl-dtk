@@ -65,8 +65,8 @@ if [[ ! -d "${ROCM_PATH}" ]]; then
   exit 1
 fi
 
-if [[ ! -d "${GTEST_SRC_DIR}" ]]; then
-  echo "Error: googletest source dir not found: ${GTEST_SRC_DIR}"
+if [[ ! -d "${GTEST_SRC_DIR}" || -z "$(find "${GTEST_SRC_DIR}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+  echo '请通过命令`git submodule update --init ./tools/googletest/`加载 googletest 源码后进行编译'
   exit 1
 fi
 
