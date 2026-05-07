@@ -2,7 +2,7 @@
 import os
 import sys
 import subprocess
-from dataclasses import dataclass
+from collections import namedtuple
 
 # Order of colls, redops, tys, protos, algos must match src/include/device.h
 all_colls     = ["Broadcast", "Reduce", "AllGather", "ReduceScatter", "AllReduce", "SendRecv", "", "", "AllToAllPivot"]
@@ -156,19 +156,7 @@ coll_camel_to_lower = {
 coll_lower_to_camel = {coll_camel_to_lower[x]: x for x in coll_camel_to_lower}
 
 ################################################################################
-@dataclass(frozen=True)
-class Fn:
-  coll: str
-  algo: str
-  proto: str
-  redop: str
-  ty: str
-  acc: str
-  pipeline: str
-  unroll: str
-
-  def __iter__(self):
-    return iter((self.coll, self.algo, self.proto, self.redop, self.ty, self.acc, self.pipeline, self.unroll))
+Fn = namedtuple('Fn', ['coll', 'algo', 'proto', 'redop', 'ty', 'acc', 'pipeline', 'unroll'])
 
 def calc_unroll_and_pipeline_for_local_arch():
 
