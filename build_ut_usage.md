@@ -10,10 +10,12 @@
 
 ## 前置条件
 
-1. 已安装 `cmake`
-2. 已安装 ROCm
-3. 已设置环境变量 `ROCM_PATH`
-4. 在仓库根目录执行脚本
+1. 将 `gooogletest` 源码加载到 `/rccl/tools/googletest/` 文件夹下
+   `git submodule update --init ./tools/googletest/`
+2. 已安装 `cmake`
+3. 已安装 ROCm
+4. 已设置环境变量 `ROCM_PATH`
+5. 在仓库根目录执行脚本
 
 示例：
 
