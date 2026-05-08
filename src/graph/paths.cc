@@ -323,9 +323,6 @@ ncclResult_t ncclTopoCheckP2p(struct ncclComm* comm, struct ncclTopoSystem* syst
   // In general, use P2P whenever we can.
   int p2pLevel = PATH_SYS;
 
-  // User override
-  NCCLCHECK(ncclGetUserP2pLevel(&p2pLevel));
-
   // Don't use P2P through ARM CPUs
   int arch, vendor, model;
   NCCLCHECK(ncclTopoCpuType(system, &arch, &vendor, &model));
@@ -336,7 +333,8 @@ ncclResult_t ncclTopoCheckP2p(struct ncclComm* comm, struct ncclTopoSystem* syst
   if (arch == NCCL_TOPO_CPU_ARCH_X86 && (vendor == NCCL_TOPO_CPU_VENDOR_ZHAOXIN || vendor == NCCL_TOPO_CPU_VENDOR_AMD)) {
     p2pLevel = PATH_PXB;
   }
-
+  // User override
+  NCCLCHECK(ncclGetUserP2pLevel(&p2pLevel));
   // Compute the PCI distance and compare with the p2pLevel.
   if (path->type <= p2pLevel) *p2p = 1;
 
