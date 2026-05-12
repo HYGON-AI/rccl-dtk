@@ -595,6 +595,7 @@ static ncclResult_t commAlloc(struct ncclComm* comm, struct ncclComm* parent, in
   char busId[]="0000:00:00.0";
   NCCLCHECK(int64ToBusId(comm->busId, busId));
   NCCLCHECK(rocm_smi_init());
+  NCCLCHECK(rocm_smi_getNumDevice(&comm->localPhysicalGpuCount));
   NCCLCHECK(rocm_smi_getDeviceIndexByPciBusId(busId, (unsigned int*)&comm->nvmlDev));
 
   comm->compCap = ncclCudaCompCap();
