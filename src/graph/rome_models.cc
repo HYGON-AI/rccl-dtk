@@ -2701,12 +2701,16 @@ ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
     system->tuning = 2;
   else
     return ncclSuccess;
-
+  //按照rocm-smi的设备索引顺序，devids重新排序GPU索引
+  int devids[ngpus];
+  struct rcclRomeModel romeTopo;
+  char pattern[256];
+  NCCLCHECK(parseRomeSystem(system, &romeTopo, pattern, devids)); 
   if (ngpus == 8 && system->nHosts == 1){
     if (isHSW(system)) {
-      NCCLCHECK(parseGraph(hygonBWSingleNodeModel.ringBase, system, graph, NULL, NULL, false));
+      NCCLCHECK(parseGraph(hygonBWSingleNodeModel.ringBase, system, graph, devids, NULL, false));
     } else if (is4GpuHylink()) {
-      NCCLCHECK(parseGraph(hygonBWSingleNode4hylink8gpuModel.ringBase, system, graph, NULL, NULL, false));
+      NCCLCHECK(parseGraph(hygonBWSingleNode4hylink8gpuModel.ringBase, system, devids, NULL, NULL, false));
     }
   }
 
