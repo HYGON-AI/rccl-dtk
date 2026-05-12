@@ -2299,26 +2299,58 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
             updateChannels(comm->oriP2pnChannelsPerPeer);
           }
         };
-        switch (p2p->parentP2pType) {
-          case P2pAllToAll:
-          case P2pGather:
-          case P2pScatter:
-            updateChannels(getP2pPerPeerChannels(comm, info, p2p->parentP2pType));
-            break; 
-          case P2pAllToAllv:
-            comm->nNodes == 1 ? updateChannels(4) : maybeRestore();
-            break;
-          case P2pInvalid:
-            comm->nNodes > 1 ? updateChannels(16) : maybeRestore();
-            break;
-          default:
-            maybeRestore();
-            break;
-        }
-        if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && p2p->bytes >= _128MB && comm->nNodes == 1 && p2p->parentP2pType == P2pAllToAll && comm->oriP2pnChannels > 16) {
-          comm->p2pnChannels = 16;
-        } else if (comm->p2pnChannels != comm->oriP2pnChannels){
-          comm->p2pnChannels = comm->oriP2pnChannels;
+        if (comm->localPhysicalGpuCount == 16 && comm->nNodes == 1 && IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938")) {
+          comm->p2pnChannels = std::min(32, comm->oriP2pnChannels);
+          switch (p2p->parentP2pType) {
+            case P2pAllToAll:
+              switch (comm->nRanks) {
+                case 16: updateChannels(1);  break;
+                case 8:  updateChannels(2);  break;
+                case 4:  updateChannels(8);  break;
+                case 2:  updateChannels(16); break;
+                default:  comm->p2pnChannels = comm->oriP2pnChannels; maybeRestore(); break;
+              }     
+              break;
+            case P2pGather:
+              updateChannels(16); break;
+            case P2pScatter:
+              updateChannels(16); break;
+            case P2pAllToAllv:
+              switch (comm->nRanks) {
+                case 16: updateChannels(2);  break;
+                case 8:  updateChannels(4);  break;
+                case 4:  updateChannels(8);  break;
+                case 2:  updateChannels(16); break;
+                default:  comm->p2pnChannels = comm->oriP2pnChannels; maybeRestore(); break;
+              }
+              break;
+            default:
+              comm->p2pnChannels = comm->oriP2pnChannels;
+              maybeRestore();
+              break;
+          }
+        } else {
+          switch (p2p->parentP2pType) {
+            case P2pAllToAll:
+            case P2pGather:
+            case P2pScatter:
+              updateChannels(getP2pPerPeerChannels(comm, info, p2p->parentP2pType));
+              break;
+            case P2pAllToAllv:
+              comm->nNodes == 1 ? updateChannels(4) : maybeRestore();
+              break;
+            case P2pInvalid:
+              comm->nNodes > 1 ? updateChannels(16) : maybeRestore();
+              break;
+            default:
+              maybeRestore();
+              break;
+          }
+          if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && p2p->bytes >= _128MB && comm->nNodes == 1 && p2p->parentP2pType == P2pAllToAll && comm->oriP2pnChannels > 16) {
+            comm->p2pnChannels = 16;
+          } else if (comm->p2pnChannels != comm->oriP2pnChannels){
+            comm->p2pnChannels = comm->oriP2pnChannels;
+          }
         }
       }
     }

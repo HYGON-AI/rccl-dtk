@@ -478,6 +478,7 @@ struct ncclComm {
   int MNNVL; // true when MNNVL is available
   struct cliqueInfo clique; // Our MNNVL clique information
   int cliqueRank; // Our rank within the MNNVL clique
+  uint32_t localPhysicalGpuCount; // number of physical GPUs on local node
 
   bool checkPointers;
   bool dmaBufSupport;
