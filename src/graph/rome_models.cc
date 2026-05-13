@@ -2582,7 +2582,7 @@ static struct rcclRomeModel hygonBWSingleNodeModel = {
 };
 
 static struct rcclRomeModel hygonBWSingleNode4gpuModel = {
-  .ringBase = "0 1 2 3|0 1 3 2|0 2 3 1|0 3 2 1"
+  .ringBase = "0 1 2 3|0 3 2 1|0 1 3 2|0 2 3 1|0 2 1 3|0 3 1 2"
 };
 
 static struct rcclRomeModel hygonBWSingleNode4hylink8gpuModel = {
@@ -2760,11 +2760,10 @@ bool isHSW(struct ncclTopoSystem* system){
 
 ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* graph) {
   ncclResult_t r;
-  constexpr int NGPUS = 8;
   const int ngpus = system->nodes[GPU].count;
   const int ncpus = system->nodes[CPU].count;
   const int nnets = system->nodes[NET].count;
-    
+  
   if (IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx93")){
     if (isHylinkMixPCIe(system)) {
       system->tuning = 3;
@@ -2775,12 +2774,21 @@ ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
     system->tuning = 2;
   else
     return ncclSuccess;
+  //按照rocm-smi的设备索引顺序，devids重新排序GPU索引
+  int devids[ngpus];
+  struct rcclRomeModel romeTopo;
+  char pattern[256];
+  NCCLCHECK(parseRomeSystem(system, &romeTopo, pattern, devids)); 
+
+  if (ngpus == 4 && system->nHosts == 1 && is4GpuHylink()) {
+    NCCLCHECK(parseGraph(hygonBWSingleNode4gpuModel.ringBase, system, graph, devids, NULL, false));
+  }
 
   if (ngpus == 8 && system->nHosts == 1){
     if (isHSW(system)) {
-      NCCLCHECK(parseGraph(hygonBWSingleNodeModel.ringBase, system, graph, NULL, NULL, false));
+      NCCLCHECK(parseGraph(hygonBWSingleNodeModel.ringBase, system, graph, devids, NULL, false));
     } else if (is4GpuHylink()) {
-      NCCLCHECK(parseGraph(hygonBWSingleNode4hylink8gpuModel.ringBase, system, graph, NULL, NULL, false));
+      NCCLCHECK(parseGraph(hygonBWSingleNode4hylink8gpuModel.ringBase, system, graph, devids, NULL, false));
     }
   }
 
