@@ -2710,7 +2710,7 @@ ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
     if (isHSW(system)) {
       NCCLCHECK(parseGraph(hygonBWSingleNodeModel.ringBase, system, graph, devids, NULL, false));
     } else if (is4GpuHylink()) {
-      NCCLCHECK(parseGraph(hygonBWSingleNode4hylink8gpuModel.ringBase, system, devids, NULL, NULL, false));
+      NCCLCHECK(parseGraph(hygonBWSingleNode4hylink8gpuModel.ringBase, system, graph, devids, NULL, false));
     }
   }
 
