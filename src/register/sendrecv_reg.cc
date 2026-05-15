@@ -17,7 +17,11 @@ ncclResult_t ncclRegisterP2pNetBuffer(struct ncclComm* comm, void* userbuff, siz
       ncclNetGraphRegisterBuffer(comm, userbuff, size, &conn, 1, regFlag, handle, cleanupQueue, NULL);
     }
     if (*regFlag == 0 && ncclParamLocalRegister()) {
-      ncclNetLocalRegisterBuffer(comm, userbuff, size, &conn, 1, regFlag, handle);
+      if (comm->useSMFree) {
+        psmNetLocalRegisterBuffer(comm, userbuff, size, &conn, 1, regFlag, handle);
+      } else {
+        ncclNetLocalRegisterBuffer(comm, userbuff, size, &conn, 1, regFlag, handle);
+      }
     }
   }
   return ret;
@@ -33,7 +37,11 @@ ncclResult_t ncclRegisterP2pIpcBuffer(struct ncclComm* comm, void* userbuff, siz
     ncclIpcGraphRegisterBuffer(comm, userbuff, size, &peerRank, 1, NCCL_IPC_SENDRECV, regFlag, &offset, &peerRmtAddrs, reinterpret_cast<void*>(cleanupQueue), NULL);
   }
   if (*regFlag == 0 && ncclParamLocalRegister()) {
-    ncclIpcLocalRegisterBuffer(comm, userbuff, size, &peerRank, 1, NCCL_IPC_SENDRECV, regFlag, &offset, &peerRmtAddrs);
+    if (comm->useSMFree) {
+      psmIpcLocalRegisterBuffer(comm, userbuff, size, &peerRank, 1, NCCL_IPC_SENDRECV, regFlag, &offset, &peerRmtAddrs);
+    } else {
+      ncclIpcLocalRegisterBuffer(comm, userbuff, size, &peerRank, 1, NCCL_IPC_SENDRECV, regFlag, &offset, &peerRmtAddrs);
+    }
   }
 
   if (*regFlag)

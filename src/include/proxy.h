@@ -78,6 +78,7 @@ struct ncclProxyOp {
   uint8_t protocol;
   uint8_t algorithm;
   uint8_t reg;
+  uint8_t regp;
   // collnet/p2p/coll buffer reg handles
   void* sendMhandle;
   void* recvMhandle;
@@ -110,6 +111,7 @@ struct ncclProxyOp {
   uint64_t workCounter;
 
   struct ncclProxyOp *enqNext;
+  struct psmSyncCondition* syncCond;
 
   // Used to track total real bytes of this op
   uint32_t totalBytes;
@@ -157,6 +159,7 @@ struct ncclProxySubArgs {
   // Profiler plugin
   int eActivationMask;
   int rank;
+  uint64_t profilerSteps;
   pid_t pid;
   void* profilerContext;
   void* taskEventHandle;
@@ -200,6 +203,7 @@ struct ncclProxyArgs {
   uint8_t protocol;
   uint8_t algorithm;
   int state;
+  int reg;
   char* sharedBuff[NCCL_STEPS];
   int sharedSize[NCCL_STEPS];
 
@@ -210,6 +214,7 @@ struct ncclProxyArgs {
   struct ncclProxyArgs* next;
   struct ncclProxyArgs* nextPeer;
   struct ncclProxyArgs** proxyAppendPtr;
+  struct psmSyncCondition* syncCond;
 
   union ncclProxyOpSpecifics specifics;
 
