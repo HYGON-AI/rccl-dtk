@@ -442,6 +442,10 @@ static ncclResult_t ncclProxyOpToArgs(struct ncclProxyOp* op, struct ncclProxyAr
   args->prevRank = op->prevRank;
   args->nextRank = op->nextRank;
   args->retry_total = 0;
+  // args fields for Pass SM.
+  args->syncCond = op->syncCond; 
+  // p2p registed, set args->reg to the reg pointer
+  args->reg = op->regp;
   return ncclSuccess;
 }
 
@@ -1236,7 +1240,11 @@ ncclResult_t ncclProxyClientGetFdBlocking(struct ncclComm* comm, int proxyRank, 
 
   // Request the allocation of a UDS fd for the handle
   if (comm->gproxyConn[proxyRank].initialized == false) {
-    NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_P2P, 1, proxyRank, &comm->gproxyConn[proxyRank]), ret, error);
+    if (comm->useSMFree) {
+      NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_PSM_P2P, 1, proxyRank, &comm->gproxyConn[proxyRank]), ret, error);
+    } else {
+      NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_P2P, 1, proxyRank, &comm->gproxyConn[proxyRank]), ret, error);
+    }
   }
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
   NCCLCHECKGOTO(ncclProxyCallBlockingUDS(comm, &comm->gproxyConn[proxyRank], ncclProxyMsgGetFd, (void*)&hipHandleVal, sizeof(hipHandleVal), NULL, 0, NULL, convertedFd), ret, error);

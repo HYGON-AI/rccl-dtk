@@ -11,14 +11,17 @@
 #define ENABLE_TIMER 0
 #include "timer.h"
 #include "transport.h"
+#include <vector>
 
 extern bool isHswInterConnect(struct ncclPeerInfo* info1, struct ncclPeerInfo* info2);
-struct ncclTransport* ncclTransports[NTRANSPORTS+1] = {
+struct ncclTransport* ncclTransports[NTRANSPORTS+3] = {
   &p2pTransport,
   &shmTransport,
   &netTransport,
   &collNetTransport,
-  &profilerTransport // Not really used for transport, only to create proxy ops polling on profiler counters.
+  &profilerTransport, // Not really used for transport, only to create proxy ops polling on profiler counters.
+  &psmP2pTransport,
+  &psmNetTransport
 };
 
 template <int type>
@@ -38,7 +41,12 @@ static ncclResult_t selectTransport(struct ncclComm* comm, struct ncclTopoGraph*
   if(false == xgmi)
     xgmi = isHswInterConnect(myInfo, peerInfo);
 
-  for (int t=0; t<NTRANSPORTS; t++) {
+  static const std::vector<int> defaultIndex = {0, 1, 2, 3, 4};
+  static const std::vector<int> smfreeIndex = {5, 6};
+  const auto& indexArray = (comm->useSMFree && connIndex == 1) ? smfreeIndex : defaultIndex;
+
+  for (int i = 0; i < indexArray.size(); i++) {
+    int t = indexArray[i];
     if (graph == NULL && connIndex == NCCL_CONN_IDX_P2P_NET && (t == TRANSPORT_SHM || (!xgmi && t == TRANSPORT_P2P))) continue;
     if (graph && n1 >= 0 && n2 >= 0 && t != TRANSPORT_NET) continue;
     struct ncclTransport *transport = ncclTransports[t];

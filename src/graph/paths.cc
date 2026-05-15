@@ -980,6 +980,7 @@ static ncclResult_t ncclTopoGetNchannels(struct ncclComm* comm, int g /*local gp
 NCCL_PARAM(MinP2pNChannels, "MIN_P2P_NCHANNELS", 1);
 NCCL_PARAM(MaxP2pNChannels, "MAX_P2P_NCHANNELS", MAXCHANNELS);
 NCCL_PARAM(P2pAutoPerPeerTuning, "P2P_AUTO_PER_PEER_TUNING", 1);
+NCCL_PARAM(PsmP2pNChannels, "PSM_P2P_NCHANNELS", 2);
 extern int64_t ncclParamWorkArgsBytes();
 
 ncclResult_t ncclTopoComputeP2pChannels(struct ncclComm* comm) {
@@ -991,6 +992,7 @@ ncclResult_t ncclTopoComputeP2pChannels(struct ncclComm* comm) {
     comm->p2pnChannels = std::min(comm->nChannels, (int)ncclParamMaxP2pNChannels());
     comm->p2pnChannels = std::max(comm->p2pnChannels, (int)ncclParamMinP2pNChannels());
   }
+  if (comm->useSMFree) comm->p2pnChannels = std::min(comm->p2pnChannels, (int)ncclParamPsmP2pNChannels());
 
   int minChannels = comm->p2pnChannels;
   // We need to loop through all local GPUs to have a global picture
@@ -1012,8 +1014,8 @@ ncclResult_t ncclTopoComputeP2pChannels(struct ncclComm* comm) {
   comm->p2pnChannelsPerPeer = std::min(comm->p2pnChannelsPerPeer, comm->p2pnChannels);
   comm->oriP2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
   comm->oriP2pnChannels = comm->p2pnChannels;
-  comm->autoPerPeerOn = (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") || IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938")) && ncclParamNChannelsPerPeer() == -2 && ncclParamP2pAutoPerPeerTuning() == 1 && isHSW(comm->topo);
-  INFO(NCCL_INIT, "comm->autoPerPeerOn: %d, comm->p2pnChannels: %d, comm->p2pnChannelsPerPeer: %d", comm->autoPerPeerOn, comm->p2pnChannels, comm->p2pnChannelsPerPeer);
+  comm->autoPerPeerOn = (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") || IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938")) && ncclParamNChannelsPerPeer() == -2 && ncclParamP2pAutoPerPeerTuning() == 1 && isHSW(comm->topo) && comm->useSMFree == 0;
+  INFO(NCCL_INIT, "comm->autoPerPeerOn: %d, comm->p2pnChannels: %d, comm->p2pnChannelsPerPeer: %d, comm->useSMFree=%d", comm->autoPerPeerOn, comm->p2pnChannels, comm->p2pnChannelsPerPeer, comm->useSMFree);
   // Init channels that weren't used so far
   for (int c=comm->nChannels; c<std::max(comm->nChannels, comm->p2pnChannels); c++) NCCLCHECK(initChannel(comm, c));
 

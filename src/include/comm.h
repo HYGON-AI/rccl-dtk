@@ -23,6 +23,7 @@
 #include "latency_profiler/CollTrace.h"
 #include "rccl_common.h"
 #include "recorder.h"
+#include <atomic>
 
 typedef enum {
   HCU_LINK_MODE_NON = 0,
@@ -198,6 +199,18 @@ struct ncclCollnetHandleList {
   struct ncclProxyConnector* proxyconn;
 };
 
+struct psmSelfCopy {
+  psmSelfCopy* next;
+  void* dst;
+  void* src;
+  size_t bytes;
+};
+
+struct psmSyncCondition {
+  std::atomic<int> proxyOpCount;    // The total number of proxyOp's that have been enqueued in this plan.
+  std::atomic<int> proxyReadyEvent; // Event that proxy thread queries for starting progresssing.
+};
+
 struct ncclTaskColl {
   struct ncclTaskColl* next;
   ncclFunc_t func;
@@ -288,6 +301,8 @@ struct ncclKernelPlan {
   struct ncclIntruQueue<struct ncclTaskP2p, &ncclTaskP2p::next> p2pTaskQueue;
   struct ncclIntruQueue<struct ncclTaskColl, &ncclTaskColl::next> collTaskQueue;
   struct ncclIntruQueue<struct ncclProxyOp, &ncclProxyOp::enqNext> proxyOpQueue;
+  struct ncclIntruQueue<struct psmSelfCopy, &psmSelfCopy::next> pscTaskQueue;
+  struct psmSyncCondition* syncCondition; // Used for Pass SM only.
 
   // Profiler plugin
   void* groupEventHandle;
@@ -638,6 +653,7 @@ struct ncclComm {
   struct ncclMemoryPool memPool_ncclTaskP2p;
   struct ncclMemoryPool memPool_ncclProxyOp;
   struct ncclMemoryPool memPool_ncclKernelPlan;
+  struct ncclMemoryPool memPool_ncclPsmSelfCopy;
 
   // Next comm in this thread's active ncclGroup[Start|End](). Holds "0x1" when
   // this comm is not yet in a group.
@@ -736,6 +752,8 @@ struct ncclComm {
 
   // unroll factor for comm [RCCL]
   int unroll;
+  // SMFree
+  bool useSMFree;
   // custom collective [RCCL]
   bool enableCustColl;
   // gfx name from hipDeviceProp_t [RCCL]

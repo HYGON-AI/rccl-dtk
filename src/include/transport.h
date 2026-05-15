@@ -20,6 +20,9 @@
 #define TRANSPORT_NET 2
 #define TRANSPORT_COLLNET 3
 #define TRANSPORT_PROFILER 4
+#define TRANSPORT_PSM_P2P 5
+#define TRANSPORT_PSM_NET 6
+#define PSM_STREAM_POOL_SIZE 4
 
 #include "proxy.h"
 #include "comm.h"
@@ -30,8 +33,15 @@ extern struct ncclTransport shmTransport;
 extern struct ncclTransport netTransport;
 extern struct ncclTransport collNetTransport;
 extern struct ncclTransport profilerTransport;
+extern struct ncclTransport psmP2pTransport;
+extern struct ncclTransport psmNetTransport;
 
 extern struct ncclTransport* ncclTransports[];
+
+extern thread_local cudaStream_t psmStreamPool[PSM_STREAM_POOL_SIZE];
+extern thread_local int psmStreamRoundRobinIdx;
+extern ncclResult_t initPsmStreamPool();
+
 // Forward declarations
 struct ncclRing;
 struct ncclConnector;
@@ -145,6 +155,9 @@ ncclResult_t ncclCollNetDirectBufferSetup(ncclComm_t comm);
 ncclResult_t ncclNetDeregBuffer(struct ncclComm* comm, struct ncclProxyConnector* proxyConn, void* handle);
 ncclResult_t ncclNetLocalRegisterBuffer(ncclComm* comm, const void* userbuff, size_t buffSize, struct ncclConnector** peerConns, int nPeers, int* outRegBufFlag, void** outHandle);
 ncclResult_t ncclNetGraphRegisterBuffer(ncclComm* comm, const void* userbuff, size_t buffSize, struct ncclConnector** peerConns, int nPeers, int* outRegBufFlag, void** outHandle, struct ncclIntruQueue<struct ncclCommCallback, &ncclCommCallback::next>* cleanupQueue, int* nCleanupQueueElts);
+
+ncclResult_t psmNetDeregBuffer(struct ncclComm* comm, struct ncclProxyConnector* proxyConn, void* handle);
+ncclResult_t psmNetLocalRegisterBuffer(ncclComm* comm, const void* userbuff, size_t buffSize, struct ncclConnector** peerConns, int nPeers, int* outRegBufFlag, void** outHandle);
 
 ncclResult_t ncclRegisterP2pIpcBuffer(struct ncclComm* comm, void* userbuff, size_t size, int peerRank, int* regFlag, void** regAddr, struct ncclIntruQueue<struct ncclCommCallback, &ncclCommCallback::next>* cleanupQueue);
 ncclResult_t ncclRegisterP2pNetBuffer(struct ncclComm* comm, void* userbuff, size_t size, struct ncclConnector* conn, int* regFlag, void** handle, struct ncclIntruQueue<struct ncclCommCallback, &ncclCommCallback::next>* cleanupQueue);

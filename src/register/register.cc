@@ -18,6 +18,7 @@
 
 using namespace rccl;
 
+NCCL_PARAM(PsmForceZeroCopy, "PSM_FORCE_ZEROCOPY", 0);
 NCCL_PARAM(LocalRegister, "LOCAL_REGISTER", 0); // LWPCOMMLIBS-632: off by default for RCCL as unsupported feature.
 
 static ncclResult_t regFindHandleFromSymAddr(struct ncclComm* comm, void* baseSymPtr, struct ncclReg** handle) {
@@ -82,16 +83,33 @@ exit:
 }
 
 static ncclResult_t regCleanup(struct ncclComm* comm, struct ncclReg* reg) {
-  if (reg->state & NET_REG_COMPLETE) {
-    struct ncclRegNetHandles* netHandle = reg->netHandleHead;
-    struct ncclRegNetHandles* netHandlePrev;
-    while(netHandle) {
-      if (ncclNetDeregBuffer(comm, netHandle->proxyConn, netHandle->handle) != ncclSuccess) {
-        WARN("rank %d deregister NET buffer handle %p proxy rank %d failed\n", comm->rank, netHandle->handle, netHandle->proxyConn->rank);
+  if (comm->useSMFree) {
+    if (reg->state & PSM_NET_REG_COMPLETE) {
+      struct ncclRegNetHandles* netHandle = reg->psmNetHandleHead;
+      struct ncclRegNetHandles* netHandlePrev;
+      while(netHandle) {
+        if (!ncclParamPsmForceZeroCopy()) {
+          if (psmNetDeregBuffer(comm, netHandle->proxyConn, netHandle->handle) != ncclSuccess) {
+            WARN("rank %d deregister PSM_NET buffer handle %p proxy rank %d failed\n", comm->rank, netHandle->handle, netHandle->proxyConn->rank);
+          }
+        }
+        netHandlePrev = netHandle;
+        netHandle = netHandle->next;
+        free(netHandlePrev);
       }
-      netHandlePrev = netHandle;
-      netHandle = netHandle->next;
-      free(netHandlePrev);
+    }
+  } else {
+    if (reg->state & NET_REG_COMPLETE) {
+      struct ncclRegNetHandles* netHandle = reg->netHandleHead;
+      struct ncclRegNetHandles* netHandlePrev;
+      while(netHandle) {
+        if (ncclNetDeregBuffer(comm, netHandle->proxyConn, netHandle->handle) != ncclSuccess) {
+          WARN("rank %d deregister NET buffer handle %p proxy rank %d failed\n", comm->rank, netHandle->handle, netHandle->proxyConn->rank);
+        }
+        netHandlePrev = netHandle;
+        netHandle = netHandle->next;
+        free(netHandlePrev);
+      }
     }
   }
   if (reg->state & NVLS_REG_COMPLETE) {
@@ -115,6 +133,17 @@ static ncclResult_t regCleanup(struct ncclComm* comm, struct ncclReg* reg) {
       }
     if (reg->regIpcAddrs.hostPeerRmtAddrs) free(reg->regIpcAddrs.hostPeerRmtAddrs);
     if (reg->regIpcAddrs.devPeerRmtAddrs) NCCLCHECK(ncclCudaFree(reg->regIpcAddrs.devPeerRmtAddrs));
+  }
+  if (comm->useSMFree && (reg->state & PSM_P2P_REG_COMPLETE)) {
+    for (int i = 0; i < NCCL_MAX_LOCAL_RANKS; ++i)
+      if (reg->psmIpcInfos[i] && !ncclParamPsmForceZeroCopy()) {
+        if (psmIpcDeregBuffer(comm, reg->psmIpcInfos[i]) != ncclSuccess) {
+          WARN("rank %d deregister PSM_P2P IPC buffer %p peerRank %d failed", comm->rank, reg->psmIpcInfos[i]->baseAddr, reg->psmIpcInfos[i]->peerRank);
+        }
+        free(reg->psmIpcInfos[i]);
+      }
+    if (reg->psmRegIpcAddrs.hostPeerRmtAddrs) free(reg->psmRegIpcAddrs.hostPeerRmtAddrs);
+    if (reg->psmRegIpcAddrs.devPeerRmtAddrs) NCCLCHECK(ncclCudaFree(reg->psmRegIpcAddrs.devPeerRmtAddrs));
   }
   return ncclSuccess;
 }
