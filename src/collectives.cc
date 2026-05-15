@@ -461,12 +461,16 @@ ncclResult_t ncclScatter_impl(const void* sendbuff, void* recvbuff, size_t recvc
 NCCL_API(ncclResult_t, ncclSend, const void* sendbuff, size_t count, ncclDataType_t datatype, int peer,
     ncclComm_t comm, cudaStream_t stream);
 
-
+extern int64_t ncclParamPsmForceZeroCopy();
 ncclResult_t ncclSend_impl(const void* sendbuff, size_t count, ncclDataType_t datatype, int peer,
     ncclComm_t comm, cudaStream_t stream) {
   NVTX3_FUNC_WITH_PARAMS(Send, NcclNvtxParamsSendRecv,
     NVTX3_PAYLOAD(comm ? comm->commHash : 0, count * ncclTypeSize(datatype), peer, datatype));
 
+  if(comm->useSMFree && ncclParamPsmForceZeroCopy()) {
+    void *handle = NULL;
+    NCCLCHECK(ncclCommRegister(comm, (void *)sendbuff, count * ncclTypeSize(datatype), &handle));
+  }  
   struct ncclInfo info = { ncclFuncSend, "Send",
     NULL, (void*)sendbuff, count, datatype, ncclSum, peer, comm, stream, /* Args */
     1, 1, nullptr };
@@ -494,6 +498,10 @@ ncclResult_t ncclRecv_impl(void* recvbuff, size_t count, ncclDataType_t datatype
   NVTX3_FUNC_WITH_PARAMS(Recv, NcclNvtxParamsSendRecv,
     NVTX3_PAYLOAD(comm ? comm->commHash : 0, count * ncclTypeSize(datatype), peer, datatype));
 
+  if(comm->useSMFree && ncclParamPsmForceZeroCopy()) {
+    void *handle = NULL;
+    NCCLCHECK(ncclCommRegister(comm, recvbuff, count * ncclTypeSize(datatype), &handle));
+  }
   struct ncclInfo info = { ncclFuncRecv, "Recv",
     NULL, recvbuff, count, datatype, ncclSum, peer, comm, stream, /* Args */
     1, 1, nullptr };

@@ -690,6 +690,8 @@ set(SRC_FILES
   src/transport/p2p.cc
   src/transport/profiler.cc
   src/transport/shm.cc
+  src/transport/psm_p2p.cc
+  src/transport/psm_net.cc
   src/include/latency_profiler/CollTrace.h
   src/include/latency_profiler/CollTraceEvent.h
   src/include/latency_profiler/CollTraceFunc.h

@@ -15,7 +15,9 @@ enum {
   NVLS_REG_POSSIBLE = 0x04,
   NVLS_REG_NO_SUPPORT = 0x08,
   COLLNET_REG_COMPLETE = 0x10,
-  IPC_REG_COMPLETE = 0x20
+  IPC_REG_COMPLETE = 0x20,
+  PSM_NET_REG_COMPLETE = 0x1000, // custom flag start from 0x1000
+  PSM_P2P_REG_COMPLETE = 0x2000
 };
 
 struct ncclPeerRegIpcAddr {
@@ -46,6 +48,8 @@ struct ncclReg {
   uint32_t state;
   // net reg
   struct ncclRegNetHandles* netHandleHead;
+  // psm net reg
+  struct ncclRegNetHandles* psmNetHandleHead;
   // nvls reg
   CUdeviceptr regAddr;
   size_t regUCSize, regMCSize;
@@ -58,6 +62,9 @@ struct ncclReg {
   // general ipc reg
   struct ncclPeerRegIpcAddr regIpcAddrs;
   struct ncclIpcRegInfo* ipcInfos[NCCL_MAX_LOCAL_RANKS];
+  // psm p2p reg
+  struct ncclPeerRegIpcAddr psmRegIpcAddrs;
+  struct ncclIpcRegInfo* psmIpcInfos[NCCL_MAX_LOCAL_RANKS];
   // symmetric reg
   void* baseSymPtr;
   size_t symSize;
