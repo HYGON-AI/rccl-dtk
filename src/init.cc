@@ -1205,6 +1205,7 @@ bool checkXdpStatus() {
 
 RCCL_PARAM(SharedNetEnable, "SHARED_NET_ENABLE", 0);
 RCCL_PARAM(CollSimpleChannels, "SIMPLE_CHANNELS", -2);
+NCCL_PARAM(PassSm, "PASS_SM", 0); 
 static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* parent, uint64_t timers[TIMERS_INIT_COUNT]) {
   // We use 2 AllGathers
   // 1. { peerInfo, comm, compCap}
@@ -1780,6 +1781,9 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
 
   NCCLCHECKGOTO(computeBuffSizes(comm), ret, fail);
 
+  if(ncclParamPassSm() && (comm->nNodes == 1 || ncclPxnDisable(comm))) comm->useSMFree = 1;
+  INFO(NCCL_INIT, "comm->useSMFree: %d, ncclPxnDisable: %d", comm->useSMFree, ncclPxnDisable(comm));
+
   // Compute nChannels per peer for p2p
   NCCLCHECKGOTO(ncclTopoComputeP2pChannels(comm), ret, fail);
   comm->CollSimpleChannels = comm->nChannels;
@@ -1925,7 +1929,11 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
     }
     if(rcclParamSharedNetEnable()) {
       // Connect to local net proxy
-      NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_NET, 1, comm->rank, &proxyConn), ret, fail);
+      if (comm->useSMFree) {   
+        NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_PSM_NET, 1, comm->rank, &proxyConn), ret, fail);
+      } else {
+        NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_NET, 1, comm->rank, &proxyConn), ret, fail);
+      }
       NCCLCHECKGOTO(ncclProxyCallBlocking(comm, &proxyConn, ncclProxyMsgSharedInit, &comm->p2pnChannels, sizeof(int), NULL, 0), ret, fail);
     }
     // Then to remote ones when using PXN

@@ -304,6 +304,7 @@ static void finishPlan(struct ncclComm* comm, struct ncclKernelPlan* plan) {
     if (op) channelUbound = c+1;
   }
   // Phase 2: Dequeue from planner->channels[c], enqueue in merged order to plan
+  uint32_t proxyOpCnt = 0;
   while (nHeads != 0) {
     int c = -1;
     uint64_t minId = uint64_t(-1);
@@ -319,6 +320,15 @@ static void finishPlan(struct ncclComm* comm, struct ncclKernelPlan* plan) {
     headIds[c] = opNext ? opNext->opCount : uint64_t(-1);
     nHeads -= opNext ? 0 : 1;
     ncclIntruQueueEnqueue(&plan->proxyOpQueue, op);
+    if (comm->useSMFree && (op->connIndex == 1)) { 
+      proxyOpCnt += 1;
+    }
+  }
+  plan->syncCondition = nullptr;
+  if (comm->useSMFree) {   
+    plan->syncCondition = new psmSyncCondition;
+    plan->syncCondition->proxyReadyEvent = 0;
+    plan->syncCondition->proxyOpCount = proxyOpCnt;
   }
 }
 
@@ -998,7 +1008,11 @@ static ncclResult_t addP2pToPlan(
         struct ncclConnector* conn = dir ? &channelPeers[peerRank]->send[connIndex[dir]]
                                          : &channelPeers[peerRank]->recv[connIndex[dir]];
         protoLL[dir] &= conn->conn.buffs[NCCL_PROTO_LL] != nullptr && !IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx12");
-        network[dir] |= conn->transportComm == (dir ? &netTransport.send : &netTransport.recv);
+        if (comm->useSMFree) {
+          network[dir] |= conn->transportComm == (dir ? &psmNetTransport.send : &psmNetTransport.recv);
+        } else {
+          network[dir] |= conn->transportComm == (dir ? &netTransport.send : &netTransport.recv);
+        }
         proxySameProcess[dir] &= conn->proxyConn.sameProcess;
       }
     }
@@ -1137,6 +1151,7 @@ static ncclResult_t addP2pToPlan(
     op->pattern = dir ? ncclPatternSend : ncclPatternRecv;
     op->chunkSize = chunkSize[dir];
     op->reg = netRegistered[dir];
+    op->regp = ipcRegistered[dir];
     op->coll = p2pTasks[dir] ? p2pTasks[dir]->func : 0;
     op->task.p2p = p2pTasks[dir];
     op->rank = comm->rank;
@@ -1186,8 +1201,15 @@ static ncclResult_t addP2pToPlan(
           proxyOps[dir].nbytes = partEnd - partBeg;
           proxyOps[dir].nsteps = DIVUP(proxyOps[dir].nbytes, NCCL_MAX_NET_SIZE);
         } else {
-          proxyOps[dir].nsteps = divUp(partEnd-partBeg, chunkDataSize);
-          proxyOps[dir].nbytes = std::min(partEnd-partBeg, chunkDataSize);
+           if (comm->useSMFree) {
+            // Pass SM needs the original address to initiate the send/recv process. recv: dir=0, send: dir=1
+            (dir ? proxyOps[dir].sendbuff : proxyOps[dir].recvbuff) = (uint8_t*)addr + partBeg;
+            proxyOps[dir].nbytes = partEnd-partBeg;
+            proxyOps[dir].nsteps = divUp(partEnd-partBeg, chunkDataSize);
+          } else {
+            proxyOps[dir].nsteps = divUp(partEnd-partBeg, chunkDataSize);
+            proxyOps[dir].nbytes = std::min(partEnd-partBeg, chunkDataSize);
+          }
         }
         if (proxyOps[dir].protocol == NCCL_PROTO_LL) {
           proxyOps[dir].nbytes *= 2;
@@ -1283,6 +1305,13 @@ static ncclResult_t scheduleP2pTasksToPlan(
         if (!testBudget(budget, plan->nWorkBatches+nChannelsMax, plan->workBytes + sizeof(struct ncclDevWorkP2p))) {
           comm->p2pPreRound = round;
           return ncclSuccess;
+        }
+        if (comm->useSMFree && (sendRank == comm->rank && send->buff != recv->buff)) { 
+          struct psmSelfCopy* node = ncclMemoryPoolAlloc<struct psmSelfCopy>(&comm->memPool_ncclPsmSelfCopy, &comm->memPermanent);
+          node->dst = recv->buff;
+          node->src = send->buff;
+          node->bytes = send->bytes;
+          ncclIntruQueueEnqueue(&plan->pscTaskQueue, node);
         }
         struct ncclTaskP2p* p2pTasks[2] = { recv, send };
         NCCLCHECK(addP2pToPlan(comm, plan, nChannelsMin, nChannelsMax, round, sendRank, sendBuff, sendBytes, recvRank, recvBuff, recvBytes, send ? send->opCount : 0, recv ? recv->opCount : 0, p2pTasks));
@@ -1458,6 +1487,11 @@ static ncclResult_t uploadWork(struct ncclComm* comm, struct ncclKernelPlan* pla
   return ncclSuccess;
 }
 
+// Add PSM related information to the proxy op.
+static void AddPSMToProxyOp(struct ncclKernelPlan* plan, struct ncclProxyOp* op) {
+  op->syncCond = plan->syncCondition;
+}
+
 static ncclResult_t uploadProxyOps(struct ncclComm* comm, struct ncclKernelPlan* plan) {
   uint64_t collOpCount = comm->sharedRes->collOpCount;
   uint64_t p2pOpBump[MAXCHANNELS] = {/*0...*/};
@@ -1472,7 +1506,7 @@ static ncclResult_t uploadProxyOps(struct ncclComm* comm, struct ncclKernelPlan*
     op->eActivationMask = op->coll <= ncclFuncAllReduce ? op->task.coll->eActivationMask : op->task.p2p->eActivationMask;
     op->taskEventHandle = op->coll <= ncclFuncAllReduce ? op->task.coll->eventHandle : op->task.p2p->eventHandle;
     ncclProfilerAddPidToProxyOp(op);
-
+    if (comm->useSMFree) AddPSMToProxyOp(plan, op);
     uint64_t oldId = op->opCount;
     // Ignoring the bottom tag bit, opCount's are zero-based within plan so
     // translate them to the tip of the comm's history.
@@ -1571,6 +1605,15 @@ static ncclResult_t reclaimPlan(struct ncclComm* comm, struct ncclCommCallback* 
     if (res1 != ncclSuccess) result = res1;
   }
   NCCLCHECK(result);
+  // Free psm self copy list
+  if (comm->useSMFree) {
+    struct psmSelfCopy* node = ncclIntruQueueHead(&plan->pscTaskQueue);
+    while (node) {
+      struct psmSelfCopy* next = node->next;
+      ncclMemoryPoolFree(&comm->memPool_ncclPsmSelfCopy, node);
+      node = next;
+    }
+  }
   // Free plan struct
   ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
   return ncclSuccess;
@@ -1665,12 +1708,20 @@ ncclResult_t ncclLaunchPrepare(struct ncclComm* comm) {
         // on the work budget and p2p work isn't collective. If we were to drain p2p
         // first, the place where we cut the kernel could vary by rank which would
         // cause the "shortest channel first" channel picker to have divergent results.
-        if (planner->nTasksColl != 0) {
-          NCCLCHECKGOTO(scheduleCollTasksToPlan(comm, plan, &budget), result, failure);
-        }
-        // And only drain p2p tasks once colls are depleted.
-        if (planner->nTasksColl == 0 && planner->nTasksP2p != 0) {
-          NCCLCHECKGOTO(scheduleP2pTasksToPlan(comm, plan, &budget), result, failure);
+        if (comm->useSMFree) {
+          if (planner->nTasksColl != 0) {
+            NCCLCHECKGOTO(scheduleCollTasksToPlan(comm, plan, &budget), result, failure);
+          } else if (planner->nTasksP2p != 0) {
+            NCCLCHECKGOTO(scheduleP2pTasksToPlan(comm, plan, &budget), result, failure);
+          }
+        } else {
+          if (planner->nTasksColl != 0) {
+            NCCLCHECKGOTO(scheduleCollTasksToPlan(comm, plan, &budget), result, failure);
+          }
+          // And only drain p2p tasks once colls are depleted.
+          if (planner->nTasksColl == 0 && planner->nTasksP2p != 0) {
+            NCCLCHECKGOTO(scheduleP2pTasksToPlan(comm, plan, &budget), result, failure);
+          }
         }
         finishPlan(comm, plan);
         if (plan->workBytes != 0) {
@@ -1763,6 +1814,19 @@ ncclResult_t ncclLaunchKernelBefore_NoUncapturedCuda(struct ncclComm* comm, stru
 NCCL_PARAM(MemSyncDomain, "MEM_SYNC_DOMAIN", cudaLaunchMemSyncDomainRemote);
 #endif
 
+// Callback to synchronize with host proxy progress.
+static void hostProxySyncCallback(void *args) {
+  NVTX3_FUNC_RANGE_IN(nccl_domain);
+  psmSyncCondition* syncCond = static_cast<psmSyncCondition*>(args);
+  syncCond->proxyReadyEvent.store(1, std::memory_order_release); 
+  while (syncCond->proxyOpCount.load(std::memory_order_acquire) != 0) {
+    // Wait for the proxy ops to be finished.
+    sched_yield();
+  }
+  delete syncCond; // Free the sync condition
+  return ;
+}
+
 NCCL_PARAM(NvlinkUtilCentricSchedEnable, "NVLINK_UTIL_CENTRIC_SCHED_ENABLE", 0);
 
 ncclResult_t ncclLaunchKernel(struct ncclComm* comm, struct ncclKernelPlan* plan) {
@@ -1777,6 +1841,16 @@ ncclResult_t ncclLaunchKernel(struct ncclComm* comm, struct ncclKernelPlan* plan
   int smem = rcclShmemDynamicSize(comm->cudaArch, comm->WarpSize);
   cudaStream_t launchStream = planner->streams->stream;
   void* extra[] = {plan->kernelArgs, &plan->kernelArgsSize};
+
+  if (comm->useSMFree && (plan->syncCondition->proxyOpCount.load(std::memory_order_relaxed) > 0 || !ncclIntruQueueEmpty(&plan->pscTaskQueue))) { 
+    struct psmSelfCopy* node = ncclIntruQueueHead(&plan->pscTaskQueue);
+    while (node) {
+      CUDACHECK(cudaMemcpyAsync(node->dst, node->src, node->bytes, cudaMemcpyDeviceToDevice, launchStream));
+      node = node->next;
+    }
+    if (plan->syncCondition->proxyOpCount.load(std::memory_order_relaxed) > 0) CUDACHECK(cudaLaunchHostFunc(launchStream, hostProxySyncCallback, plan->syncCondition));
+    if (plan->collOpCount == 0) return ncclSuccess;
+  }
 
   auto event = latency_profiler::collTraceAquireEventBaseline(plan, launchStream);
   if (planner->numStreams == 1 && !plan->persistent) {
