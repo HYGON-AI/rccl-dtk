@@ -2304,8 +2304,8 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
           switch (p2p->parentP2pType) {
             case P2pAllToAll:
               switch (comm->nRanks) {
-                case 16: updateChannels(1);  break;
-                case 8:  updateChannels(2);  break;
+                case 16: updateChannels(p2p->bytes <= _2MB ? 2 : 1); break;
+                case 8:  updateChannels((p2p->bytes > _8KB && p2p->bytes <= _2MB) ? 4 : 2); break; 
                 case 4:  updateChannels(8);  break;
                 case 2:  updateChannels(16); break;
                 default:  comm->p2pnChannels = comm->oriP2pnChannels; maybeRestore(); break;
