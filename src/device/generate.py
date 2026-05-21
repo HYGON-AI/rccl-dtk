@@ -335,6 +335,12 @@ def get_arch_guard(fn):
   elif fn.acc == "1":
       cond = "defined(__gfx942__) || defined(__gfx950__)"
 
+  if fn.ty in ('f64'):
+    if cond is None:
+        cond = "!defined(__gfx928__)"
+    else:
+        cond = "!defined(__gfx928__) && (" + cond + ")"
+
   return cond
 
 ################################################################################
