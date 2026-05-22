@@ -146,7 +146,7 @@ ncclResult_t rcclOverrideChannels(struct ncclComm* comm, ncclFunc_t coll, size_t
       break; // Skip undefined thresholds
     }
 
-    if(bytesPerRank > minByteThreshold && bytesPerRank <= maxByteThreshold){
+    if(nBytes >= minByteThreshold && nBytes <= maxByteThreshold){
       int channelCount = comm->minMaxChannelThresholds[tunableIndex][channelCountIndex][2];
 
       //honor user's min/max channels defined through NCCL_MIN_NCHANNELS and NCCL_MAX_NCHANNELS
@@ -229,11 +229,11 @@ void rcclUpdateThreadThreshold(struct ncclComm* comm, size_t const& nBytes, stru
     userChannelControlInput = !inputStr ? 0 : 1;
   }
 
-  if(!userChannelControlInput && comm->nNodes >= 2 && (info->func == ncclFuncReduceScatter || info->func == ncclFuncAllGather)) {
+  if(!userChannelControlInput && comm->nNodes == 1) {
     auto tunableIndex = rcclGetTunableIndex(info->func);
     auto tunedThreshold = comm->minMaxLLRange[tunableIndex][info->protocol][RCCL_PROTOCOL_THREAD_THRESHOLD_IDX];
     if(tunedThreshold != RCCL_LL_LIMITS_UNDEFINED) {
-      threadThreshold = tunedThreshold * comm->nRanks;
+      threadThreshold = tunedThreshold;
     }
   }
 }

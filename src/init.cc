@@ -1067,7 +1067,6 @@ static ncclResult_t computeBuffSizes(struct ncclComm* comm) {
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
     comm->buffSizes[p] = envs[p] != -2 ? envs[p] : defaults[p];
   }
-  if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && comm->nNodes > 1 && !comm->isSuperNode) comm->buffSizes[NCCL_PROTO_SIMPLE] = (1 << 20) ; // smaller for hb internode trans 
 
   if (comm->nNodes > 1) {
     rcclSetP2pNetChunkSize(comm, comm->p2pChunkSize);
