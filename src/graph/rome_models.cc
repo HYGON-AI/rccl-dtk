@@ -2767,7 +2767,11 @@ ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
   if (IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx93")){
     if (isHylinkMixPCIe(system)) {
       system->tuning = 3;
-    } else {
+    }
+    else if (IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx938")) {
+      system->tuning = 4;
+    }
+    else {
       system->tuning = 1;
     }
   } else if (IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx926") || IsArchMatch(system->nodes[GPU].nodes[0].gpu.gcn, "gfx928") )

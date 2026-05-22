@@ -218,7 +218,28 @@ static struct tuningModel tuning_model_1 {
   },
 
   .llProtoRanges = {{{RCCL_LL_LIMITS_UNDEFINED}}},
-  .channelThresholds  = {{{CHAN_THRESHOLDS_UNDEFINED}}},
+  .channelThresholds = {
+    /*ReduceScatter*/
+    {
+      {0, 0, 0}
+    },
+    /*AllGather*/
+    {
+      {0, 0, 0}
+    },
+    /*AllReduce*/
+    {
+      {0, 0, 0}
+    },
+    /*Reduce*/
+    {
+      {1, 1048575, 1}
+    },
+    /*Broadcast*/
+    {
+      {1, 1048575, 1}
+    },
+  },
 };
 
 static struct tuningModel tuning_model_2 {
@@ -289,36 +310,71 @@ static struct tuningModel tuning_model_3 {
 };
 
 static struct tuningModel tuning_model_4 {
-  .hwLat = {
-    /* NVLINK */
-    { /* Tree (LL/LL128/Simple)*/ { 0.8, 1.4, 2.5 }, /* Ring (LL/LL128/Simple)*/ { 0.8, 2.2, 3.6 }, /* CollNetDirect (Simple)*/ { 0.8, 1.4, 2.5 }, /* CollNetChain (Simple)*/ { 0.8, 1.4, 2.5 }, /* NVLS */ { 0, 0, 0 }, /* NVLS Tree */ { 0, 0, 0 }, /* PAT */ { 0, 0, 0} },
+  .hwLat =
+  { /* NVLINK */
+    { /* Tree (LL/LL128/Simple)*/ { 0.4, 1.4, 4 }, /* Ring (LL/LL128/Simple)*/ { 0.5, 2.2, 3.6 }, /* CollNetDirect (Simple)*/ { 0.0, 0.0, 0.8 }, /* CollNetChain (Simple)*/ { 0.0, 0.0, 1.4 }, /* NVLS */ { 0, 0, 0 }, /* NVLS Tree */ { 0, 0, 0 } },
     /* PCI */
-    { /* Tree (LL/LL128/Simple)*/ { 2.2, 2.2, 5.7 }, /* Ring (LL/LL128/Simple)*/ { 2.2, 2.2, 5.7 }, /* CollNetDirect (Simple)*/ { 0.0, 0.0, 5.7 }, /* CollNetChain (Simple)*/ { 0.0, 0.0, 5.7 }, /* NVLS */ { 0, 0, 0 }, /* NVLS Tree */ { 0, 0, 0 }, /* PAT */ { 0, 0, 0} },
+    { /* Tree (LL/LL128/Simple)*/ { 2.2, 2.2, 5.7 }, /* Ring (LL/LL128/Simple)*/ { 2.2, 2.2, 5.7 }, /* CollNetDirect (Simple)*/ { 0.0, 0.0, 5.7 }, /* CollNetChain (Simple)*/ { 0.0, 0.0, 5.7 }, /* NVLS */ { 0, 0, 0 }, /* NVLS Tree */ { 0, 0, 0 } },
     /* NET */
-    { /* Tree (LL/LL128/Simple)*/ { 32.2, 34.4, 47.6 }, /* Ring (LL/LL128/Simple)*/ { 35.4, 87.8, 209.2 }, /* CollNetDirect (Simple)*/ { 0.0, 0.0, 47.6 }, /* CollNetChain (Simple)*/ { 0.0, 0.0, 47.6 }, /* NVLS */ { 0, 0, 0 }, /* NVLS Tree */ { 0, 0, 0 }, /* PAT */ { 0, 0, 0} },
+    { /* Tree (LL/LL128/Simple)*/ { 6, 18.2, 8 }, /* Ring (LL/LL128/Simple)*/ { 11.5, 19.8, 15.1 }, /* CollNetDirect (Simple)*/ { 0.0, 0.0, 11.8 }, /* CollNetChain (Simple)*/ { 0.0, 0.0, 18.2 }, /* NVLS */ { 0, 0, 0 }, /* NVLS Tree */ { 0, 0, 0 } },
   },
 
-  .bwRatio = {
-    /* 2 nodes */
-    { /* Tree (LL/LL128/Simple)*/ { 0.16, 1.09, 1.61 }, /* Ring (LL/LL128/Simple)*/ { 0.15, 0.41, 1.00 }, /* CollNetDirect (Simple)*/ { 0.00, 0.00, 1.00 }, /* CollNetChain (Simple)*/ { 0.00, 0.00, 1.00 }, /* NVLS */ { 0, 0, 0 }, /* NVLS Tree */ { 0, 0, 0 }, /* PAT */ { 0, 0, 0} },
+  .bwRatio =
+  { /* 2 nodes */
+    { /* Tree (LL/LL128/Simple)*/ { 0.18, 0, 0.6825 }, /* Ring (LL/LL128/Simple)*/ { 0.1875, 0, 0.75 }, /* CollNetDirect (Simple)*/ { 0.00, 0.00, 1.00 }, /* CollNetChain (Simple)*/ { 0.00, 0.00, 1.00 }, /* NVLS */ { 0, 0, 0 }, /* NVLS Tree */ { 0, 0, 0 } },
     /* more than 2 nodes */
-    { /* Tree (LL/LL128/Simple)*/ { 0.16, 1.09, 1.08 }, /* Ring (LL/LL128/Simple)*/ { 0.15, 0.41, 1.00 }, /* CollNetDirect (Simple)*/ { 0.00, 0.00, 1.00 }, /* CollNetChain (Simple)*/ { 0.00, 0.00, 1.00 }, /* NVLS */ { 0, 0, 0 }, /* NVLS Tree */ { 0, 0, 0 }, /* PAT */ { 0, 0, 0} },
+    { /* Tree (LL/LL128/Simple)*/ { 0.1125, 0, 0.7425 }, /* Ring (LL/LL128/Simple)*/ { 0.375, 0, 0.75 }, /* CollNetDirect (Simple)*/ { 0.00, 0.00, 1.00 }, /* CollNetChain (Simple)*/ { 0.00, 0.00, 1.00 }, /* NVLS */ { 0, 0, 0 }, /* NVLS Tree */ { 0, 0, 0 } },
   },
 
   .treeCorrectionFactor = {
-    { 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 1.0, 0.1, 0.1, 0.2, 0.4, 0.6, 0.5, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, },
-    { 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.1, 0.2, 1.0, 0.5, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, },
-    { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.8, 0.4, 0.3, 0.3, 0.1, 0.1, 1.0, 1.0, 0.7, 0.5, 0.6, 0.5, 0.6, 0.6, 0.5, 0.6, 0.6, 0.6, 0.7, },
+    { 1.0, 1.0, 1.0, 1.0,  .9,  .9,  .9,  .9,  .9,  .9,  .6,  .5,  .4,  .5,  .5,  .6,  .7,  .8,  .9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 },
+    { 1.0, 1.0, 1.0, 1.0, 1.0,  .9,  .8,  .8,  .8,  .7,  .6,  .6,  .6,  .6,  .6,  .6,  .8,  .9,  .9,  .9,  .9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 },
+    {  .9,  .9,  .9,  .9,  .9,  .9,  .9,  .8,  .7,  .6,  .6,  .5,  .4,  .5,  .5,  .6,  .7,  .9, .95,  .9,  .7,  .7,  .7,  .7,  .7,  .7,  .7 }
+  //{   0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  13,  14,  15,  16,  16,  18,  19,  20,  21,  22,  23,  24,  25, 26 }
   },
 
   .ringCorrectionFactor = {
-    { 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.2, 0.1, 0.3, 0.1, 0.1, 0.1, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, },
-    { 0.4, 0.5, 0.5, 0.4, 0.4, 0.4, 0.4, 0.2, 0.2, 0.1, 0.3, 1.0, 1.0, 0.7, 0.8, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9, 0.8, 0.5, 0.4, 0.3, 0.3, },
-    { 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 1.0, 1.0, 0.8, 0.5, 0.1, 0.7, 0.2, 0.4, 0.4, 0.6, 0.7, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, },
+    { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 },
+    { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 },
+    { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 },
   },
 
-  .llProtoRanges = {{{RCCL_LL_LIMITS_UNDEFINED}}},
-  .channelThresholds  = {{{CHAN_THRESHOLDS_UNDEFINED}}},
+  .llProtoRanges = {
+    /*ReduceScatter*/
+    {/*LL (min/max/factor/thread_threshold)*/ {0, 65536, 1, 8}, /*LL64/128 (min/max/factor/thread_threshold)*/ {0, 0, 0, 0}},
+    /*AllGather*/
+    {/*LL (min/max/factor/thread_threshold)*/ {0, 65536,  1, 8}, /*LL64/128 (min/max/factor/thread_threshold)*/ {0, 0, 0, 0}},
+    /*AllReduce*/
+    {/*LL (min/max/factor/thread_threshold)*/ {0, 524288, 1, 8},/*LL64/128 (min/max/factor/thread_threshold)*/ {0, 0, 0, 0}},
+    /*Reduce*/
+    {/*LL (min/max/factor/thread_threshold)*/ {0, 65536, 1, 8},/*LL64/128 (min/max/factor/thread_threshold)*/ {0, 0, 0, 0}},
+    /*Broadcast*/
+    {/*LL (min/max/factor/thread_threshold)*/ {0, 65536, 1, 8},/*LL64/128 (min/max/factor/thread_threshold)*/ {0, 0, 0, 0}},
+  },
+
+  .channelThresholds = {
+    /*ReduceScatter*/
+    {
+      {1048576, UINT64_MAX, 16}
+    },
+    /*AllGather*/
+    {
+      {1048576, UINT64_MAX, 16}
+    },
+    /*AllReduce*/
+    {
+      {33554432, UINT64_MAX, 16}
+    },
+    /*Reduce*/
+    {
+      {1, 1048575, 1}, {67108864, UINT64_MAX, 16}
+    },
+    /*Broadcast*/
+    {
+      {1, 1048575, 1}, {67108864, UINT64_MAX, 16}
+    },
+  },
+
 };
 
 static struct tuningModel tuning_model_5 {
