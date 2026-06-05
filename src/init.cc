@@ -201,8 +201,6 @@ exit:;
 static ncclResult_t ncclInit() {
     char strValue[2048];
     NCCLCHECK(ncclTopoGetStrFromSys("/proc/sys/kernel", "numa_balancing", strValue));
-    if (strcmp(strValue, "1") == 0)
-      WARN("NUMA auto balancing enabled which can lead to variability in the RCCL performance! Disable by \"sudo sysctl kernel.numa_balancing=0\"");
     NCCLCHECK(ncclTopoGetStrFromSys("/proc", "version", strValue));
     char *verStr, *state;
     verStr = strtok_r(strValue, " ", &state);
@@ -222,14 +220,7 @@ static ncclResult_t ncclInit() {
           }
           fclose(file);
         }
-        if (strstr(strValue, "iommu=pt") == NULL)
-          WARN("Missing \"iommu=pt\" from kernel command line which can lead to system instablity or hang!");
       }
-#ifndef HIP_UNCACHED_MEMORY
-      char *env = getenv("HSA_FORCE_FINE_GRAIN_PCIE");
-      if (env == NULL || strcmp(env, "1") != 0)
-        WARN("Missing \"HSA_FORCE_FINE_GRAIN_PCIE=1\" from environment which can lead to low RCCL performance, system instablity or hang!");
-#endif
     }
   pthread_once(&initOnceControl, initOnceFunc);
   return initResult;
@@ -3047,7 +3038,7 @@ ncclResult_t ncclCommDestroy_impl(ncclComm_t comm) {
     NVTX3_FUNC_RANGE_IN(nccl_domain);
     return ncclSuccess;
   }
-  INFO(NCCL_INIT, "Memory used = %ld", allocTracker[comm->cudaDev].totalAllocSize);
+  INFO(NCCL_ALLOC, "Memory used = %ld", allocTracker[comm->cudaDev].totalAllocSize);
 
 #ifdef ENABLE_MSCCLPP
   if (comm->mscclppCompatible) {
