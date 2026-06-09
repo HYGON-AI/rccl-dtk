@@ -760,7 +760,7 @@ struct ncclComm {
   char* archName;
   // multiProcessorCount from hipDeviceProp_t [RCCL]
   int cuCount;
-  
+  char detectTopoPath[CACHE_LINE_SIZE];
   uint64_t endMagic;
 };
 
