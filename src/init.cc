@@ -28,15 +28,21 @@
 #include "profiler.h"
 #include "mnnvl.h"
 #include <fcntl.h>
+#include <algorithm>
 #include <unistd.h>
 #include <hip/hip_runtime.h>
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
 #include <dlfcn.h>
+#include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <map>
+#include <string>
+#include <vector>
+#include "ibvwrap.h"
 #include "graph/topo.h"
 #include "graph/xml.h"
 #include "archinfo.h"
@@ -127,6 +133,7 @@ RCCL_PARAM(MscclppEnabled, "MSCCLPP_ENABLE", defaultEnableMscclpp);
 RCCL_PARAM(MscclppForceEnabled, "MSCCLPP_FORCE_ENABLE", 0);
 // Turn off cheap fence for gfx942/gfx950
 RCCL_PARAM(Gfx9CheapFenceOff, "GFX9_CHEAP_FENCE_OFF", 0);
+RCCL_PARAM(ForceDetectTopo, "FORCE_DETECT_TOPO", 0);
 
 // GDRCOPY support: Off by default
 NCCL_PARAM(GdrCopyEnable, "GDRCOPY_ENABLE", 0);
@@ -140,6 +147,27 @@ ncclResult_t initGdrCopy() {
   }
   return ncclSuccess;
 }
+
+#define MAX_DEV_COUNT 8 // 每个 pci 最大设备数
+#define MAX_NIC_ID_LEN 16 // 网卡 ID 字符串最大长度
+typedef struct {
+  int  gpuCount; // GPU 数量
+  int  nicCount; // NIC 数量
+  int  devList[MAX_DEV_COUNT]; // 设备 ID 列表（固定数组）
+  int  nicList[MAX_DEV_COUNT]; // 网卡 ID 列表（固定数组）
+} pciInfo;
+
+// 完整拓扑信息（无 vector、无 string）
+typedef struct {
+  int     numaId; // NUMA 节点 ID
+  int     pciNum; // PCI 数量
+  pciInfo pcis[MAX_DEV_COUNT]; // PCI 信息数组（固定）
+} numaInfo;
+
+typedef struct {
+  int numaNum; // NUMA数量
+  numaInfo numa[MAX_DEV_COUNT]; // PCI 信息数组（固定）
+} topoInfo;
 
 static ncclResult_t initResult = ncclSuccess;
 static pthread_once_t initOnceControl = PTHREAD_ONCE_INIT;
@@ -196,6 +224,409 @@ static void initOnceFunc() {
   initNvtxRegisteredEnums();
 #endif
 exit:;
+}
+
+static ncclResult_t ncclGetPathLevel(const std::string& path, int level, std::string& value) {
+  if (level <= 0) return ncclInvalidArgument;
+  value.clear();
+  const char* component = path.c_str();
+  if (component[0] == '/') component++;
+  for (int currentLevel = 1; component[0] != '\0'; ++currentLevel) {
+    const char* nextSlash = strchr(component, '/');
+    if (currentLevel == level) {
+      value.assign(component, nextSlash == NULL ? strlen(component) : static_cast<size_t>(nextSlash - component));
+      return ncclSuccess;
+    }
+    if (nextSlash == NULL) break;
+    component = nextSlash + 1;
+  }
+  INFO(NCCL_INIT, "DetectTopo path %s does not have level %d", path.c_str(), level);
+  return ncclInternalError;
+}
+
+static ncclResult_t ncclGetNicRealPaths(std::map<int, std::string>& ncclNicToRealPath) {
+  ncclNicToRealPath.clear();
+  const char* ibSysPath = "/sys/class/infiniband";
+  DIR* dir = NULL;
+  if((dir = opendir(ibSysPath)) == NULL) {
+    INFO(NCCL_INIT, "Could not open %s: %s", ibSysPath, strerror(errno));
+  } else {
+    struct dirent* entry;
+    while((entry = readdir(dir)) != NULL) {
+      const char* devName = entry->d_name;
+      if(strncmp(devName, "mlx5_", strlen("mlx5_")) != 0) continue;
+
+      char* end = NULL;
+      long  nicIndex = strtol(devName + strlen("mlx5_"), &end, 10);
+      if(end == devName + strlen("mlx5_") || *end != '\0' || nicIndex < 0 || nicIndex > INT_MAX) continue;
+      const int nic = static_cast<int>(nicIndex);
+      char nicPath[PATH_MAX];
+      snprintf(nicPath, sizeof(nicPath), "%s/%s", ibSysPath, devName);
+
+      char realPath[PATH_MAX];
+      if(realpath(nicPath, realPath) == NULL) {
+        INFO(NCCL_INIT, "DetectTopo could not get realpath for %s: %s", nicPath, strerror(errno));
+        continue;
+      }
+      ncclNicToRealPath[nic] = realPath;
+      INFO(NCCL_INIT, "DetectTopo NIC mlx5_%d realpath %s", nic, realPath);
+    }
+    closedir(dir);
+  }
+  return ncclSuccess;
+}
+
+static ncclResult_t ncclGetGpuRealPaths(std::map<int, std::string>& ncclGpuToRealPath) {
+  ncclGpuToRealPath.clear();
+  int gpuCount = 0;
+  CUDACHECK(cudaGetDeviceCount(&gpuCount));
+  for(int gpu = 0; gpu < gpuCount; ++gpu) {
+    char gpuBusIdStr[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
+    CUDACHECK(cudaDeviceGetPCIBusId(gpuBusIdStr, sizeof(gpuBusIdStr), gpu));
+    char gpuPath[PATH_MAX];
+    snprintf(gpuPath, sizeof(gpuPath), "/sys/class/pci_bus/%.*s", 7, gpuBusIdStr);
+    char gpuRealPath[PATH_MAX];
+    if(realpath(gpuPath, gpuRealPath) == NULL) {
+        INFO(NCCL_INIT, "DetectTopo could not get realpath for %s: %s", gpuPath, strerror(errno));
+        continue;
+    }
+    ncclGpuToRealPath[gpu] = gpuRealPath;
+    INFO(NCCL_INIT, "DetectTopo GPU %d busId %s realpath %s", gpu, gpuBusIdStr, gpuRealPath);
+  }
+  return ncclSuccess;
+}
+
+static ncclResult_t ncclGetSysGpuToNic(std::map<int, std::vector<int>>& ncclSysGpuToNic) {
+  ncclSysGpuToNic.clear();
+
+  std::map<int, std::string> ncclNicToRealPath;
+  std::map<int, std::string> ncclGpuToRealPath;
+  NCCLCHECK(ncclGetNicRealPaths(ncclNicToRealPath));
+  NCCLCHECK(ncclGetGpuRealPaths(ncclGpuToRealPath));
+
+  std::map<int, std::string> nicToLevel5;
+  for (const auto& nicRealPathEntry : ncclNicToRealPath) {
+    std::string nicLevel5;
+    NCCLCHECK(ncclGetPathLevel(nicRealPathEntry.second, 5, nicLevel5));
+    nicToLevel5[nicRealPathEntry.first] = nicLevel5;
+  }
+
+  for (const auto& gpuRealPathEntry : ncclGpuToRealPath) {
+    const int gpu = gpuRealPathEntry.first;
+    const std::string& gpuRealPath = gpuRealPathEntry.second;
+    std::string gpuLevel5;
+    NCCLCHECK(ncclGetPathLevel(gpuRealPath, 5, gpuLevel5));
+
+    std::vector<int>& nics = ncclSysGpuToNic[gpu];
+    for (const auto& nicLevelEntry : nicToLevel5) {
+      const int nic = nicLevelEntry.first;
+      const std::string& nicLevel5 = nicLevelEntry.second;
+      if (nicLevel5 == gpuLevel5) {
+        nics.push_back(nic);
+      }
+    }
+
+    if (nics.empty()) {
+      ncclSysGpuToNic.erase(gpu);
+      INFO(NCCL_INIT, "DetectTopo GPU %d level5 %s has no matching NIC", gpu, gpuLevel5.c_str());
+    } else {
+      INFO(NCCL_INIT, "DetectTopo GPU %d level5 %s matched %zu NIC(s)", gpu, gpuLevel5.c_str(), nics.size());
+    }
+  }
+  return ncclSuccess;
+}
+
+static ncclResult_t ncclForceUniformAffinity(const std::map<int, std::vector<int>>& ncclSysGpuToNic,
+                                             std::map<int, std::vector<int>>& gpuToBestNicMap) {
+  int gpuCount = 0;
+  CUDACHECK(cudaGetDeviceCount(&gpuCount));
+  if (gpuCount % 8 != 0) {
+    INFO(NCCL_INIT, "DetectTopo GPU count %d is not a multiple of 8, skipping topology detection", gpuCount);
+    return ncclSuccess;
+  }
+  
+  int noGpuCount = 0;
+  for (int gpu = 0; gpu < gpuCount; gpu+=2) {
+    int peerGpu = gpu + 1;
+    auto gpuIt = ncclSysGpuToNic.find(gpu);
+    auto peerGpuIt = ncclSysGpuToNic.find(peerGpu);
+    if (gpuIt != ncclSysGpuToNic.end()) {
+      gpuToBestNicMap[gpu] = gpuIt->second;
+      gpuToBestNicMap[peerGpu] = gpuIt->second;
+    } else if (peerGpuIt != ncclSysGpuToNic.end()) {
+      gpuToBestNicMap[gpu] = peerGpuIt->second;
+      gpuToBestNicMap[peerGpu] = peerGpuIt->second;
+    } else {
+      noGpuCount += 2;
+    }
+  }
+
+  if (noGpuCount) gpuToBestNicMap.clear();
+  return ncclSuccess;
+}
+
+static ncclResult_t ncclMergeGpuToNicMap(const std::map<int, std::vector<int>>& gpuToBestNicMap,
+                                         std::map<std::vector<int>, std::vector<int>>& gpuGroupToNicMap) {
+  gpuGroupToNicMap.clear();
+
+  std::map<std::vector<int>, std::vector<int>> nicGroupToGpuMap;
+  for (const auto& gpuToNicEntry : gpuToBestNicMap) {
+    const int gpu = gpuToNicEntry.first;
+    std::vector<int> nicGroup = gpuToNicEntry.second;
+    std::sort(nicGroup.begin(), nicGroup.end());
+    nicGroupToGpuMap[nicGroup].push_back(gpu);
+  }
+
+  for (auto& nicToGpuEntry : nicGroupToGpuMap) {
+    std::vector<int>& gpuGroup = nicToGpuEntry.second;
+    std::sort(gpuGroup.begin(), gpuGroup.end());
+    gpuGroupToNicMap[gpuGroup] = nicToGpuEntry.first;
+  }
+
+  return ncclSuccess;
+}
+
+static ncclResult_t ncclGetNicNum(int& nicNum) {
+  struct ibv_device** devices = NULL;
+  NCCLCHECK(wrap_ibv_get_device_list(&devices, &nicNum));
+  NCCLCHECK(wrap_ibv_free_device_list(devices));
+  return ncclSuccess;
+}
+
+static ncclResult_t ncclFillDetectTopoInfo(std::map<int, std::vector<int>>& gpuToBestNicMap, topoInfo& topo){
+  int nicNum = 0;
+  NCCLCHECK(ncclGetNicNum(nicNum));
+  int gpuNum = 0;
+  CUDACHECK(cudaGetDeviceCount(&gpuNum));
+  if (gpuNum <= 0 || nicNum <= 0) return ncclInternalError;
+  std::map<std::vector<int>, std::vector<int>> gpuGroupToNicMap;
+  NCCLCHECK(ncclMergeGpuToNicMap(gpuToBestNicMap, gpuGroupToNicMap));
+  if (gpuGroupToNicMap.empty()) return ncclInternalError;
+
+  int gpuGroupNum = 2;
+  int nicGroupNum = nicNum / (gpuNum / gpuGroupNum);
+  int numaNum = 2;
+  int pcieNum = gpuNum / gpuGroupNum / numaNum;
+  topo.numaNum = numaNum;
+
+  auto gpuGroupIt = gpuGroupToNicMap.begin();
+  for (int numa = 0; numa < numaNum; numa++) {
+    topo.numa[numa].numaId = numa;
+    topo.numa[numa].pciNum = pcieNum;
+    for (int pcie = 0; pcie < pcieNum; pcie++) {
+      pciInfo& pci = topo.numa[numa].pcis[pcie];
+      memset(&pci, 0, sizeof(pci));
+      pci.gpuCount = gpuGroupNum;
+      pci.nicCount = nicGroupNum;
+
+      if (gpuGroupIt == gpuGroupToNicMap.end()) {
+        continue;
+      }
+
+      const std::vector<int>& gpuGroup = gpuGroupIt->first;
+      const std::vector<int>& nicGroup = gpuGroupIt->second;
+      for (int gpuIdx = 0; gpuIdx < gpuGroupNum && gpuIdx < static_cast<int>(gpuGroup.size()); gpuIdx++) {
+        pci.devList[gpuIdx] = gpuGroup[gpuIdx];
+      }
+      for (int nicIdx = 0; nicIdx < nicGroupNum && nicIdx < static_cast<int>(nicGroup.size()); nicIdx++) {
+        pci.nicList[nicIdx] = nicGroup[nicIdx];
+      }
+      ++gpuGroupIt;
+    }
+  }
+  return ncclSuccess;
+}
+
+// 缩进辅助函数
+static void printIndent(FILE *fp, int depth) {
+  for (int i = 0; i < depth; i++) {
+    fprintf(fp, "  ");
+  }
+}
+
+// 写入 PCI 节点（带属性）
+static void writePciNode(FILE *fp, int depth, const char *busId, const char *speed, int width) {
+  printIndent(fp, depth);
+  if (speed && strlen(speed) > 0 && width > 0) {
+    fprintf(fp, "<pci busid=\"%s\" link_speed=\"%s\" link_width=\"%d\">\n", busId, speed, width);
+  } else {
+    fprintf(fp, "<pci busid=\"%s\">\n", busId);
+  }
+}
+
+// 关闭 PCI 节点
+static void closePciNode(FILE *fp, int depth) {
+  printIndent(fp, depth);
+  fprintf(fp, "</pci>\n");
+}
+
+int getGpuParentBusIds(char parent[MAX_STR_LEN], int dev) {
+  char linkPath[MAX_STR_LEN], linkTarget[MAX_STR_LEN];
+  char busIdStr[] = "00000000:00:00.0";
+  CUDACHECK(cudaDeviceGetPCIBusId(busIdStr, sizeof(busIdStr), dev));
+  snprintf(linkPath, sizeof(linkPath), "/sys/bus/pci/devices/%s", busIdStr);
+  
+  ssize_t n = readlink(linkPath, linkTarget, sizeof(linkTarget) - 1);
+  if (n < 0) return -1;
+  linkTarget[n] = '\0';
+
+  char *lastSlash = strrchr(linkTarget, '/');
+  if (!lastSlash) return -1;
+  *lastSlash = '\0';
+  char *secondLastSlash = strrchr(linkTarget, '/');
+  if (!secondLastSlash) return -1;
+
+  strncpy(parent, secondLastSlash + 1, MAX_NIC_ID_LEN - 1);
+  parent[MAX_NIC_ID_LEN - 1] = '\0';
+
+  return 0;
+}
+
+char *getNicBusid(struct ibv_device *dev) {
+  const char *name = wrap_ibv_get_device_name(dev);
+  if (!name) return NULL;
+
+  char sysfs_path[MAX_STR_LEN];
+  snprintf(sysfs_path, sizeof(sysfs_path), "/sys/class/infiniband/%s/device", name);
+
+  char link[MAX_STR_LEN];
+  ssize_t len = readlink(sysfs_path, link, sizeof(link) - 1);
+  if (len < 0) return NULL;
+  link[len] = '\0';
+
+  char *base = strrchr(link, '/');
+  if (!base) return NULL;
+  base++; // skip '/'
+
+  return strdup(base);
+}
+
+ncclResult_t ncclDumpTopoXml(const topoInfo *topo, const char *filename, struct ncclComm* comm) {
+  const char *linkSpeed = "32.0 GT/s PCIe";
+  int linkWidth = 16;
+  FILE *fp = fopen(filename, "w");
+  if (!fp) {
+    WARN("Failed to open file, name: %s", filename);
+    return ncclInternalError;
+  }
+
+  struct ibv_device** devices = NULL;
+  int nicCount = 0;
+  ncclResult_t ret = ncclSuccess;
+  char parent[MAX_STR_LEN];
+  char busIdStr[] = "00000000:00:00.0";
+  NCCLCHECKGOTO(wrap_ibv_get_device_list(&devices, &nicCount), ret, cleanup);
+
+  fprintf(fp, "<system version=\"2\">\n");
+
+  for (int n = 0; n < topo->numaNum; n++) {
+    const numaInfo *numa = &topo->numa[n];
+    fprintf(fp, "  <cpu numaid=\"%d\">\n", numa->numaId);
+
+    for (int p = 0; p < numa->pciNum; p++) {
+      const pciInfo *pci = &numa->pcis[p];
+      CUDACHECKGOTO(cudaDeviceGetPCIBusId(busIdStr, sizeof(busIdStr), pci->devList[0]), ret, cleanup);
+      getGpuParentBusIds(parent, pci->devList[0]);
+      writePciNode(fp, 2, parent, linkSpeed, linkWidth);
+
+      for (int dev = 0; dev < pci->gpuCount; dev++) {
+        CUDACHECKGOTO(cudaDeviceGetPCIBusId(busIdStr, sizeof(busIdStr), pci->devList[dev]), ret, cleanup);
+        writePciNode(fp, 3, busIdStr, linkSpeed, linkWidth);
+        printIndent(fp, 4);
+        fprintf(fp, "<gpu/>\n");
+        closePciNode(fp, 3);
+      }
+
+      for (int dev = 0; dev < pci->nicCount; dev++) {
+        char *nicBusid = getNicBusid(devices[pci->nicList[dev]]);
+        if (nicBusid) {
+          writePciNode(fp, 3, nicBusid, nullptr, 0);
+          free(nicBusid);
+        }
+        printIndent(fp, 4);
+        fprintf(fp, "<nic/>\n");
+        closePciNode(fp, 3);
+      }
+      closePciNode(fp, 2);
+    }
+
+    fprintf(fp, "  </cpu>\n");
+  }
+  fprintf(fp, "</system>\n");
+cleanup:
+  if(fp) fclose(fp);
+  if(devices) wrap_ibv_free_device_list(devices);
+  return ret;
+}
+
+static void ncclLogDetectTopoInfo(const char* tag, int rank, int cudaDev, const topoInfo& topo) {
+  INFO(NCCL_INIT, "%s rank %d cudaDev %d numaNum %d", tag, rank, cudaDev, topo.numaNum);
+  for (int numa = 0; numa < topo.numaNum && numa < MAX_DEV_COUNT; numa++) {
+    const numaInfo& numaNode = topo.numa[numa];
+    INFO(NCCL_INIT, "%s numa[%d] numaId %d pciNum %d", tag, numa, numaNode.numaId, numaNode.pciNum);
+    for (int pcie = 0; pcie < numaNode.pciNum && pcie < MAX_DEV_COUNT; pcie++) {
+      const pciInfo& pci = numaNode.pcis[pcie];
+      std::string devList;
+      std::string nicList;
+      for (int gpuIdx = 0; gpuIdx < pci.gpuCount && gpuIdx < MAX_DEV_COUNT; gpuIdx++) {
+        if (!devList.empty()) devList += ",";
+        devList += std::to_string(pci.devList[gpuIdx]);
+      }
+      for (int nicIdx = 0; nicIdx < pci.nicCount && nicIdx < MAX_DEV_COUNT; nicIdx++) {
+        if (!nicList.empty()) nicList += ",";
+        nicList += std::to_string(pci.nicList[nicIdx]);
+      }
+      INFO(NCCL_INIT,
+           "%s numa[%d].pci[%d] gpuCount %d nicCount %d devList [%s] nicList [%s]",
+           tag,
+           numa,
+           pcie,
+           pci.gpuCount,
+           pci.nicCount,
+           devList.c_str(),
+           nicList.c_str());
+    }
+  }
+}
+
+static ncclResult_t ncclAutoDetectTopo(struct ncclComm* comm) {
+  // 1.判断是否需要探测
+  // 只有未强制探测（0表示未开启） 且 （未指定topofile 或 /tmp/topo.xml文件不存在 或 非mlnx网卡）
+  snprintf(comm->detectTopoPath, sizeof(comm->detectTopoPath), "%s", "/tmp/topo.xml");
+  if(rcclParamForceDetectTopo() == 0) {
+    const char* xmlTopoFile = ncclGetEnv("NCCL_TOPO_FILE");
+    ncclNetProperties_t props;
+    NCCLCHECK(comm->ncclNet->getProperties(0, &props));
+    if(xmlTopoFile != NULL || access(comm->detectTopoPath, F_OK) == 0 || strncmp(props.name, "mlx5", 4) != 0) {
+      INFO(NCCL_INIT, "Skipping topology detection, NCCL_TOPO_FILE(%s), %s(%s), NICName(%s).", xmlTopoFile ? xmlTopoFile: "not set", 
+        comm->detectTopoPath, access(comm->detectTopoPath, F_OK) == 0 ? "exists" : "does not exists", props.name);
+      return ncclSuccess;
+    }
+  }
+  INFO(NCCL_INIT, "Detecting topology start.");
+
+  //2.强制NUMA指定
+  topoInfo topo;
+  memset(&topo, 0, sizeof(topo));
+  if(comm->cudaDev == 0) {
+    std::map<int, std::vector<int>> gpuToBestNicMap;
+    std::map<int, std::vector<int>> ncclSysGpuToNic;
+    // 获取系统上报的GPU与NIC的匹配关系
+    NCCLCHECK(ncclGetSysGpuToNic(ncclSysGpuToNic));
+    // 强制匹配NUMA流程
+    NCCLCHECK(ncclForceUniformAffinity(ncclSysGpuToNic, gpuToBestNicMap));
+    // 3.填充topo信息
+    if(!gpuToBestNicMap.empty()) {
+      // 按照gpu的顺序直接给topo赋值
+      NCCLCHECK(ncclFillDetectTopoInfo(gpuToBestNicMap, topo));
+      ncclLogDetectTopoInfo("DetectTopo local", comm->rank, comm->cudaDev, topo);
+      NCCLCHECK(ncclDumpTopoXml(&topo, comm->detectTopoPath, comm));
+    }
+  }
+  // 4.节点内barrier操作
+  NCCLCHECK(bootstrapBroadcast(comm->bootstrap, comm->rank, comm->nRanks, 0, &topo, sizeof(topo)));
+
+  return ncclSuccess;
 }
 
 static ncclResult_t ncclInit() {
@@ -1355,6 +1786,8 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   } while(0);
 
   timers[TIMER_INIT_TOPO] = clockNano();
+
+  NCCLCHECKGOTO(ncclAutoDetectTopo(comm), ret, fail);
 
   // Dump XML if requested by user
   const char* dumpXmlFile;
