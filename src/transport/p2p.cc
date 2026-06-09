@@ -14,7 +14,7 @@
 #include "shmutils.h"
 #include "p2p.h"
 #include "transport.h"
-#include "hsa/hsa_ext_amd.h"
+#include <hip/hip_hsa_ext.h>
 #include <assert.h>
 #include "shm.h"
 #include "register_inline.h"
@@ -43,7 +43,7 @@ struct p2pConnectInfo {
   struct ncclP2pBuff p2pBuff;
   // Used by CE memcpy
   ncclShmIpcDesc_t desc;
-  alignas(8) uint64_t paList[(CONNECT_SIZE-CONNECT_ORGIN_SIZE)/8]; 
+  alignas(8) uint64_t paList[(sizeof(hipFabricHandle_t) + sizeof(uint64_t) - 1)/8]; 
 };
 static_assert(sizeof(struct p2pConnectInfo) <= CONNECT_SIZE, "p2pConnectInfo is too large");
 
@@ -159,7 +159,6 @@ static int busIdToCudaDev(int64_t busId) {
   return -1;
 }
 
-#ifdef RSMI_SUPPORT_SUPER_NODE
 pthread_mutex_t topoLock = PTHREAD_MUTEX_INITIALIZER;
 static bool topoInited = false;
 static char topoNet[32*1024];
@@ -199,77 +198,21 @@ bool isUniqueidInTopo(const char *uniqueId) {
   }
 }
 
-static hsa_status_t iterateAgentCallback(hsa_agent_t agent, void* data) {
-  struct devAgentInfo *agentInfo = (struct devAgentInfo *)data;
-  hsa_status_t status;
-  uint32_t hsaPciBdfId = 0;
-  uint32_t hsaPciDomainId = 0;
-
-  status = pfn_hsa_agent_get_info(agent, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_BDFID), &hsaPciBdfId);
-  if (status != HSA_STATUS_SUCCESS) {
-    return status;
-  }
-
-  status = pfn_hsa_agent_get_info(agent, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_DOMAIN), &hsaPciDomainId);
-  if (status != HSA_STATUS_SUCCESS) {
-    return status;
-  }
-
-  uint32_t hsaBus = (hsaPciBdfId >> 8) & 0xFF;
-  uint32_t hsaDevice = (hsaPciBdfId >> 3) & 0x1F;
-  uint32_t hsaFunction = hsaPciBdfId & 0x07;
-
-  uint32_t devDomainId = agentInfo->busId >> 20;
-  uint32_t devBus = (agentInfo->busId >> 12) & 0xFF;
-  uint32_t devDevice = (agentInfo->busId >> 4) & 0x1F;
-  uint32_t devFunction = agentInfo->busId & 0x07;
-
-  if (hsaPciDomainId == devDomainId && hsaBus == devBus && hsaDevice == devDevice && hsaFunction == devFunction) {
-    agentInfo->hsaAgent = agent;
-    INFO(NCCL_INIT, "cudaDev:%d get match hsa dev domain:0x%x bdf:0x%x  busId:0x%lx", 
-      agentInfo->cudaDev, hsaPciDomainId, hsaPciBdfId, agentInfo->busId);
-  }
-
-  return HSA_STATUS_SUCCESS;
-}
-
-static ncclResult_t getAgent(struct devAgentInfo *agentInfo) {
-  if (pfn_hsa_iterate_agents(iterateAgentCallback, agentInfo) != HSA_STATUS_SUCCESS) {
-    WARN("cudaDev:%d bdf:0x%lx fail to iterate hsa agent", agentInfo->cudaDev, agentInfo->busId);
-    return ncclInternalError;
-  }
-
-  return ncclSuccess;
-}
-
-static ncclResult_t getDevAgent(int cudaDev, hsa_agent_t *agent) {
-  struct devAgentInfo agentInfo = { 0 };
-  ncclResult_t ret = ncclSuccess;
-  
-  getBusId(cudaDev, (int64_t*)(&agentInfo.busId));
-  agentInfo.cudaDev = cudaDev;
-
-  ret = getAgent(&agentInfo);
-  if(ret != ncclSuccess || agentInfo.hsaAgent.handle == 0) {
-    return ncclInternalError;
-  } else {
-    *agent = agentInfo.hsaAgent;
-    return ncclSuccess;
-  }
-}
-#endif
-
 bool isHswInterConnect(struct ncclPeerInfo* info1, struct ncclPeerInfo* info2) {
-#ifdef RSMI_SUPPORT_SUPER_NODE
   if (info1->hostHash == info2->hostHash)
     return false;
 
   if (isUniqueidInTopo(info1->uniqueId) && isUniqueidInTopo(info2->uniqueId)) {
     return true;
   }
-  
-  INFO(NCCL_P2P, "rank %d uniqueId: %s and rank %d uniqueId: %s is not interconnected!", info1->rank, info1->uniqueId, info2->rank, info2->uniqueId);
-#endif
+
+  if(info1->podSn[0] != 0 && info2->podSn[0] != 0 && 0 == strncmp(info1->podSn, info2->podSn, 63)) {
+    INFO(NCCL_P2P, "podSn %s is same, is interconnected", info1->podSn);
+    return true;
+  }
+
+  INFO(NCCL_P2P, "rank %d uniqueId: %s podSn: %s and rank %d uniqueId: %s podSn: %s is not interconnected!", 
+    info1->rank, info1->uniqueId, info1->podSn, info2->rank, info2->uniqueId, info2->podSn);
   return false;
 }
 
@@ -386,12 +329,12 @@ ncclResult_t p2pCanConnect(int* ret, struct ncclComm* comm, struct ncclTopoGraph
 // cuMem API support
 ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int refcount, ncclIpcDesc *ipcDesc, void **ptr, bool useXdp) {
   if (ncclCuMemEnable()) {
-#if ROCM_VERSION >= 70000
+#if ROCM_VERSION >= 60303
     CUmemAllocationHandleType type = ncclCuMemHandleType;
 
     // cuMem API support
     CUmemGenericAllocationHandle handle;
-    NCCLCHECK(ncclCuMemAlloc(ptr, &handle, type, size));
+    NCCLCHECK(ncclCuMemAlloc(ptr, &handle, type, size, useXdp));
     if (type == CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
       // Return the native cuMem handle for later Export/Import via UDS
       memcpy(&ipcDesc->cuDesc.data, &handle, sizeof(handle));
@@ -439,7 +382,7 @@ ncclResult_t ncclP2pFreeShareableBuffer(ncclIpcDesc *ipcDesc) {
 
 ncclResult_t ncclP2pImportShareableBuffer(struct ncclComm *comm, int peer, size_t size, ncclIpcDesc *ipcDesc, void **devMemPtr) {
   if (ncclCuMemEnable()) {
-#if ROCM_VERSION >= 70000
+#if ROCM_VERSION >= 60303
     // cuMem API support
     CUdeviceptr dptr = 0;
     CUmemAllocationHandleType type = ncclCuMemHandleType;
@@ -462,15 +405,15 @@ ncclResult_t ncclP2pImportShareableBuffer(struct ncclComm *comm, int peer, size_
       // Send cuMem handle to remote for conversion to an fd
       NCCLCHECK(ncclProxyClientGetFdBlocking(comm, peer, &cuDesc->data, &fd));
       INFO(NCCL_P2P, "UDS converted handle 0x%lx to fd %d on remote peer %d", *(uint64_t*)&cuDesc->data, fd, peer);
-      CUCHECK(cuMemImportFromShareableHandle(&handle, &fd, type));
+      CUCHECK(cuMemImportFromShareableHandle(&handle, (void *)(uintptr_t)fd, type));
       SYSCHECK(close(fd), "close");
     } else {
-      CUCHECK(cuMemImportFromShareableHandle(&handle, cuDesc, type));
+      CUCHECK(cuMemImportFromShareableHandle(&handle, (void*)&cuDesc->handle, type));
     }
     CUCHECK(cuMemAddressReserve(&dptr, size, /* alignment */ 0, /* addr */ 0, /* flags */ 0));
     CUCHECK(cuMemMap(dptr, size, /* offset */ 0, handle, /* flags */ 0));
 
-    TRACE(NCCL_P2P, "Imported shareable buffer size %zu handle 0x%llx dptr %p", size, handle, (void*)dptr);
+    INFO(NCCL_P2P, "Imported shareable buffer size %zu handle 0x%lx dptr %p", size, (uint64_t)(uintptr_t)handle, (void*)dptr);
 
     // Allow access by the local GPU
     CUmemAccessDesc accessDesc = {};
@@ -478,7 +421,7 @@ ncclResult_t ncclP2pImportShareableBuffer(struct ncclComm *comm, int peer, size_
     accessDesc.location.id = comm->cudaDev;
     accessDesc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
     CUCHECK(cuMemSetAccess(dptr, size, &accessDesc, 1));
-    TRACE(NCCL_P2P, "Set Access for %p size %zu on dev %d", (void*)dptr, size, accessDesc.location.id);
+    INFO(NCCL_P2P, "Set Access for %p size %zu on dev %d", (void*)dptr, size, accessDesc.location.id);
 
     *devMemPtr = (void *)dptr;
 #else
@@ -494,12 +437,12 @@ ncclResult_t ncclP2pImportShareableBuffer(struct ncclComm *comm, int peer, size_
   return ncclSuccess;
 }
 
-#ifdef RSMI_SUPPORT_SUPER_NODE
+#ifdef RSMI_SUPPORT_HSA_EXT_RPC
 ncclResult_t ncclP2pExportInterNodeBuffer(void *ptr, size_t size, uint64_t *paList) {
-  hsa_status_t ret;
+  hipError_t ret;
   
-  ret = pfn_hsa_ext_rpc_memory_create(ptr, size, (hsa_ext_rpc_memory_t*)paList);
-  if(ret != HSA_STATUS_SUCCESS) {
+  ret = hipHsaExtRpcMemoryCreate(ptr, size, (hipFabricHandle_t *)paList);
+  if(ret != hipSuccess) {
     WARN("failed to get %p addr's pa: return %d", ptr, ret);
     return ncclInternalError;
   }
@@ -510,16 +453,10 @@ ncclResult_t ncclP2pExportInterNodeBuffer(void *ptr, size_t size, uint64_t *paLi
 }
 
 ncclResult_t ncclP2pImportInterNodeBuffer(uint64_t *paList, int cudaDev, void **ptr) {
-  hsa_status_t ret;
-  hsa_agent_t agent;
+  hipError_t ret;
   
-  if(ncclSuccess != getDevAgent(cudaDev, &agent)) {
-    WARN("failed to get % device agent", cudaDev);
-    return ncclInternalError;
-  }
-  
-  ret = pfn_hsa_ext_rpc_memory_attach((hsa_ext_rpc_memory_t*)paList, 1, &agent, ptr);
-  if(ret != HSA_STATUS_SUCCESS) {
+  ret = hipHsaExtRpcMemoryAttachDevice((hipFabricHandle_t *)paList, 1, &cudaDev, ptr);
+  if(ret != hipSuccess) {
     WARN("failed to attach internode memory to dev %d, ret %d(inf 0x%lx, 0x%lx)", 
         cudaDev, ret, paList[0], paList[1]);
     
@@ -531,10 +468,10 @@ ncclResult_t ncclP2pImportInterNodeBuffer(uint64_t *paList, int cudaDev, void **
 }
 
 ncclResult_t ncclP2pFreeInterNodeBuffer(void *ptr) {
-  hsa_status_t ret;
+  hipError_t ret;
   
-  ret = pfn_hsa_ext_rpc_memory_detach(ptr);
-  if(ret != HSA_STATUS_SUCCESS) {
+  ret = hipHsaExtRpcMemoryDetach(ptr);
+  if(ret != hipSuccess) {
     WARN("failed to free internode memory %p, return %d", ptr, ret);
     return ncclInternalError;
   }
@@ -581,7 +518,7 @@ static ncclResult_t p2pMap(struct ncclComm *comm, struct ncclProxyConnector* pro
         return ncclInternalError;
       }
       if (ncclCuMemEnable()) {
-#if ROCM_VERSION >= 70000
+#if ROCM_VERSION >= 60303
         // for intra-process ranks, we should map memHandle of the peers to increase refcount.
         // Otherwise, if peers abort and free the buffer, the rank can suffer invalid access.
         NCCLCHECK(ncclCuMemAllocAddr(devMem, &p2pBuff->ipcDesc.memHandle, p2pBuff->size));
@@ -609,7 +546,7 @@ static ncclResult_t p2pMap(struct ncclComm *comm, struct ncclProxyConnector* pro
 }
 
 static ncclResult_t trayMap(struct ncclComm *comm, struct ncclPeerInfo* myInfo, struct ncclPeerInfo* peerInfo, struct ncclP2pBuff* p2pBuff, uint64_t *paList, void** devMem, void** ipcPtr) {
-#ifdef RSMI_SUPPORT_SUPER_NODE
+#ifdef RSMI_SUPPORT_HSA_EXT_RPC
   if ((myInfo->hostHash == peerInfo->hostHash) && (myInfo->pidHash == peerInfo->pidHash)) {  // must be same host/pid
     *devMem = p2pBuff->directPtr;
     *ipcPtr = NULL;
@@ -633,8 +570,11 @@ static ncclResult_t trayMap(struct ncclComm *comm, struct ncclPeerInfo* myInfo, 
     INFO(NCCL_P2P|NCCL_ALLOC, "trayMap import, rank%d, myInfo rank%d, peerInfo rank%d, devMem %p, pa 0x%lx", 
             comm->rank, myInfo->rank, peerInfo->rank, *devMem, paList[1]);
   }
-#endif
   return ncclSuccess;
+#else
+  WARN("trayMap is not supported without HSA_EXT_RPC support");
+  return ncclInternalError;
+#endif
 }
 
 /* Send: Create and return connect structures for this peer to connect to me */
@@ -720,11 +660,13 @@ ncclResult_t p2pSendSetup(struct ncclComm* comm, struct ncclTopoGraph* graph, st
     memcpy(&info->desc, &resources->proxyInfo.desc, sizeof(ncclShmIpcDesc_t));
   } else {
     NCCLCHECK(ncclProxyCallBlocking(comm, &send->proxyConn, ncclProxyMsgSetup, &req, sizeof(struct ncclP2pRequest), &info->p2pBuff, sizeof(struct ncclP2pBuff)));
-    if (true == isHbInternode) {
-      NCCLCHECK(trayMap(comm, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, info->paList, (void**)&resources->sendDevMem, &resources->sendMemTray));
-    } else {
+    // For Hb internode, prefer the CuMem path through p2pMap when available.
+    // Fall back to trayMap only when CuMem is disabled or unsupported.
+    if(!isHbInternode || ncclCuMemEnable()) {
       NCCLCHECK(p2pMap(comm, &send->proxyConn, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, (void**)&resources->sendDevMem, &resources->sendMemIpc));
       info->paList[0] = 0;
+    } else {
+      NCCLCHECK(trayMap(comm, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, info->paList, (void**)&resources->sendDevMem, &resources->sendMemTray));
     }
     resources->sendMemSameProc = P2P_SAME_PID(myInfo, (comm->peerInfo + info->rank));
   }
@@ -800,11 +742,13 @@ ncclResult_t p2pRecvSetup(struct ncclComm* comm, struct ncclTopoGraph* graph, st
 
   NCCLCHECK(ncclProxyCallBlocking(comm, &recv->proxyConn, ncclProxyMsgSetup, &req, sizeof(struct ncclP2pRequest), &info->p2pBuff, sizeof(struct ncclP2pBuff)));
 
-  if (true == isHbInternode) {
-    NCCLCHECK(trayMap(comm, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, info->paList, (void**)&resources->recvDevMem, &resources->recvMemTray));
-  } else {
+  // For Hb internode, prefer the CuMem path through p2pMap when available.
+  // Fall back to trayMap only when CuMem is disabled or unsupported.
+  if (!isHbInternode || ncclCuMemEnable()) {
     NCCLCHECK(p2pMap(comm, &recv->proxyConn, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, (void**)&resources->recvDevMem, &resources->recvMemIpc));
     info->paList[0] = 0;
+  } else {
+    NCCLCHECK(trayMap(comm, myInfo, comm->peerInfo+info->rank, &info->p2pBuff, info->paList, (void**)&resources->recvDevMem, &resources->recvMemTray));
   }
   resources->recvMemSameProc = P2P_SAME_PID(myInfo, (comm->peerInfo + info->rank));
   resources->recvMemType = info->p2pBuff.memType;
@@ -934,7 +878,7 @@ ncclResult_t p2pSendFree(struct ncclConnector* send) {
       }
     }
     else {
-      #ifdef RSMI_SUPPORT_SUPER_NODE
+      #ifdef RSMI_SUPPORT_HSA_EXT_RPC
       if (resources->sendMemTray) {
         ncclP2pFreeInterNodeBuffer(resources->sendMemTray);
       }
@@ -978,7 +922,7 @@ ncclResult_t p2pRecvFree(struct ncclConnector* recv) {
       }
     }
     else {
-      #ifdef RSMI_SUPPORT_SUPER_NODE
+      #ifdef RSMI_SUPPORT_HSA_EXT_RPC
       if (resources->sendMemTray) {
         ncclP2pFreeInterNodeBuffer(resources->sendMemTray);
       }
@@ -1122,7 +1066,11 @@ static ncclResult_t p2pSendProxyFree(struct ncclProxyConnection* connection, str
       }
     } else {
       // Do not check return code as CUDA may have already shut down
-      ncclCudaFree(connection->transportResources);
+      if (connection->resMemType == P2P_HIP_NOR_MEM) {
+        ncclCudaFree(connection->transportResources);
+      } else if (connection->resMemType == P2P_HSA_PCIE_MEM) {
+        rocm_hsa_amd_memory_pool_free(connection->transportResources);
+      }
     }
   }
   return ncclSuccess;
@@ -1246,7 +1194,7 @@ ncclResult_t ret = ncclSuccess;
         // Get the mem handle for that buffer. It may have been allocated through cudaMalloc in which case we'll
         // get the CUDA legacy mem handle, or through cuMem*.
         if (ncclCuMemEnable()) {
-#if ROCM_VERSION >= 70000
+#if ROCM_VERSION >= 60303
           CUmemGenericAllocationHandle handle;
           if (CUPFN(cuMemRetainAllocationHandle(&handle, baseAddr)) != CUDA_SUCCESS) {
             // if cuMem* export fails, retry legacy export
@@ -1460,14 +1408,14 @@ static ncclResult_t p2pProxyRegister(struct ncclProxyConnection* connection, str
     CUDACHECKGOTO(cudaIpcOpenMemHandle(&regAddr, ipcExpInfo->ipcDesc.devIpc, cudaIpcMemLazyEnablePeerAccess), ret, fail);
     regAddr = (void*)((uintptr_t)regAddr + ipcExpInfo->offset);
   } else {
-#if ROCM_VERSION >= 70000
+#if ROCM_VERSION >= 60303
     // cuMem import
     if (connection->sameProcess) {
       // if proxy is same process as request peer, we just need to map the handle.
       memcpy(&handle, &ipcExpInfo->ipcDesc.memHandle, sizeof(CUmemGenericAllocationHandle));
     } else {
       if (ncclCuMemHandleType == CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
-        CUCHECKGOTO(cuMemImportFromShareableHandle(&handle, &ipcExpInfo->impFd, ncclCuMemHandleType), ret, fail);
+        CUCHECKGOTO(cuMemImportFromShareableHandle(&handle, (void *)(uintptr_t)ipcExpInfo->impFd, ncclCuMemHandleType), ret, fail);
         SYSCHECKGOTO(close(ipcExpInfo->impFd), "close", ret, fail);
       } else {
         CUCHECKGOTO(cuMemImportFromShareableHandle(&handle, (void*)&ipcExpInfo->ipcDesc.cuDesc, ncclCuMemHandleType), ret, fail);
@@ -1494,7 +1442,7 @@ exit:
   return ret;
 fail:
   if (!ipcExpInfo->legacyIpcCap) {
-#if ROCM_VERSION >= 70000
+#if ROCM_VERSION >= 60303
     if (mapped) CUCHECK(cuMemUnmap((CUdeviceptr)regAddr, ipcExpInfo->size));
     if (regAddr) CUCHECK(cuMemAddressFree((CUdeviceptr)regAddr, ipcExpInfo->size));
     if (imported) CUCHECK(cuMemRelease(handle));
@@ -1567,7 +1515,7 @@ ncclResult_t ncclIpcSymmetricMap(struct ncclComm* comm, size_t offset, size_t si
       if (ncclCuMemHandleType == CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
         impFd = -1;
         NCCLCHECKGOTO(ncclProxyClientGetFdBlocking(comm, comm->localRankToRank[r], &desc[r].data, &impFd), ret, fail);
-        CUCHECKGOTO(cuMemImportFromShareableHandle(&impHandle, &impFd, ncclCuMemHandleType), ret, fail);
+        CUCHECKGOTO(cuMemImportFromShareableHandle(&impHandle, (void *)(uintptr_t)impFd, ncclCuMemHandleType), ret, fail);
         SYSCHECKGOTO(close(impFd), "close", ret, fail);
       } else {
         CUCHECKGOTO(cuMemImportFromShareableHandle(&impHandle, (void*)&desc[r].handle, ncclCuMemHandleType), ret, fail);

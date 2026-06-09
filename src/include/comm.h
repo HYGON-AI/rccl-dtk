@@ -466,6 +466,7 @@ struct ncclPeerInfo {
   int cuMemSupport;
   char uniqueId[32];
   int version;
+  char podSn[64];
 };
 
 typedef enum ncclGroupTaskType {

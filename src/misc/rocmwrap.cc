@@ -36,11 +36,6 @@ DECLARE_ROCM_PFN(hsa_amd_memory_pool_get_info);
 DECLARE_ROCM_PFN(hsa_amd_agent_iterate_memory_pools);
 DECLARE_ROCM_PFN(hsa_amd_memory_pool_allocate);
 DECLARE_ROCM_PFN(hsa_amd_memory_pool_free);
-#ifdef RSMI_SUPPORT_SUPER_NODE
-DECLARE_ROCM_PFN(hsa_ext_rpc_memory_create);
-DECLARE_ROCM_PFN(hsa_ext_rpc_memory_attach);
-DECLARE_ROCM_PFN(hsa_ext_rpc_memory_detach);
-#endif
 
 
 static uint16_t version_major, version_minor;
@@ -52,7 +47,7 @@ static pthread_once_t initOnceControl = PTHREAD_ONCE_INIT;
 static ncclResult_t initResult;
 
 // This env var (NCCL_CUMEM_ENABLE) toggles cuMem API usage
-NCCL_PARAM(CuMemEnable, "CUMEM_ENABLE", 0);
+NCCL_PARAM(CuMemEnable, "CUMEM_ENABLE", -2);
 NCCL_PARAM(CuMemHostEnable, "CUMEM_HOST_ENABLE", -1);
 // Handle type used for cuMemCreate()
 CUmemAllocationHandleType ncclCuMemHandleType = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
@@ -61,7 +56,8 @@ static int ncclCuMemSupported = 0;
 
 // Determine whether CUMEM & VMM RDMA is supported on this platform
 int ncclIsCuMemSupported() {
-#if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
+// CUMEM support requires ROCm 6.0+
+#if (defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)) && ROCM_VERSION < 60303
   return 0;
 #else
   CUdevice currentDev;
@@ -84,7 +80,8 @@ error:
 }
 
 int ncclCuMemEnable() {
-#if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
+// CUMEM support requires ROCm 6.0+
+#if (defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)) && ROCM_VERSION < 60303
   return 0;
 #else
   // NCCL_CUMEM_ENABLE=-2 means auto-detect CUMEM support
@@ -146,11 +143,6 @@ static void initOnceFunc() {
   LOAD_HSA_SYM(getHsaLib(), "hsa_amd_agent_iterate_memory_pools", pfn_hsa_amd_agent_iterate_memory_pools);
   LOAD_HSA_SYM(getHsaLib(), "hsa_amd_memory_pool_allocate", pfn_hsa_amd_memory_pool_allocate);
   LOAD_HSA_SYM(getHsaLib(), "hsa_amd_memory_pool_free", pfn_hsa_amd_memory_pool_free);
-#ifdef RSMI_SUPPORT_SUPER_NODE
-  LOAD_HSA_SYM(getHsaLib(), "hsa_ext_rpc_memory_create", pfn_hsa_ext_rpc_memory_create);
-  LOAD_HSA_SYM(getHsaLib(), "hsa_ext_rpc_memory_attach", pfn_hsa_ext_rpc_memory_attach);
-  LOAD_HSA_SYM(getHsaLib(), "hsa_ext_rpc_memory_detach", pfn_hsa_ext_rpc_memory_detach);
-#endif
 
   pfn_hsa_init();  
   pfn_hsa_system_get_info = (PFN_hsa_system_get_info) dlsym(getHsaLib(), "hsa_system_get_info");
