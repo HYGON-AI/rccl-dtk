@@ -1419,7 +1419,7 @@ ncclResult_t ncclTopoGetSystem(struct ncclComm* comm, struct ncclTopoSystem** sy
     NCCLCHECKGOTO(ncclTopoGetXmlFromFile(xmlTopoFile, xml, 1), ret, fail);
   } else {
     // Try default XML topology location
-    NCCLCHECKGOTO(ncclTopoGetXmlFromFile("/var/run/nvidia-topologyd/virtualTopology.xml", xml, 0), ret, fail);
+    NCCLCHECKGOTO(ncclTopoGetXmlFromFile(comm->detectTopoPath, xml, 0), ret, fail);
   }
   // Fixup the cpu's host_hashes.
   struct ncclXmlNode* node;

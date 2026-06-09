@@ -39,7 +39,29 @@ static float getTotalBw(struct ncclTopoSystem* system, struct ncclTopoNode* gpu)
   }
   return std::max(pciBw, nvlinkBw);
 }
+static void ncclCapNicSpeed400G(struct ncclTopoSystem* system) {
+  const double bw400G = 50.0, bw200G = 25.0;
+  int nicCount = system->nodes[NET].count;
+  if (system->nodes[GPU].count != 8 || nicCount < 8) return;
+
+  // 只要有 ≥400G NIC 存在，统一降到 200G 保证 RING 对称
+  int fastCnt = 0;
+  for (int i = 0; i < nicCount; ++i)
+    if (system->nodes[NET].nodes[i].net.bw >= bw400G) ++fastCnt;
+  if (fastCnt == 0) return;
+
+  for (int i = 0; i < nicCount; ++i) {
+    if (system->nodes[NET].nodes[i].net.bw > bw200G) {
+      INFO(NCCL_GRAPH, "Capping NIC %d speed from %.0f to %.0f GB/s",
+           system->nodes[NET].nodes[i].net.dev,
+           system->nodes[NET].nodes[i].net.bw, bw200G);
+      system->nodes[NET].nodes[i].net.bw = (float)bw200G;
+    }
+  }
+}
+
 ncclResult_t ncclTopoSearchInit(struct ncclTopoSystem* system) {
+  ncclCapNicSpeed400G(system);
   system->maxBw = 0.0;
   system->totalBw = 0.0;
   int inter = system->nodes[NET].count;
