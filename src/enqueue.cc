@@ -519,7 +519,8 @@ ncclResult_t ncclPrepareTasks(struct ncclComm* comm, bool* algoNeedConnect, bool
         agg.devFuncId = ncclDevFuncId(agg.func, agg.opDev.op, agg.datatype, agg.algorithm, agg.protocol, 1, agg.pipeline);
       else
         agg.devFuncId = ncclDevFuncId(agg.func, agg.opDev.op, agg.datatype, agg.algorithm, agg.protocol, 0, agg.pipeline);
-      comm->devComm->funcindex = (((agg.func*ncclNumDevRedOps + agg.opDev.op) * ncclNumTypes + agg.datatype) * (NCCL_NUM_ALGORITHMS-1) + agg.algorithm) * NCCL_NUM_PROTOCOLS + agg.protocol;
+      int funcindex = (((agg.func*ncclNumDevRedOps + agg.opDev.op) * ncclNumTypes + agg.datatype) * (NCCL_NUM_ALGORITHMS-1) + agg.algorithm) * NCCL_NUM_PROTOCOLS + agg.protocol;
+      hipMemcpy(&comm->devComm->funcindex, &funcindex, sizeof(int), hipMemcpyHostToDevice);
       if (agg.devFuncId < 0) {
         WARN("%s: unsupported collective. Please ensure the collective has been enabled in build.", __func__);
         return ncclInvalidUsage;
@@ -2766,7 +2767,8 @@ static int getP2pPerPeerChannels(struct ncclComm* comm, struct ncclInfo* info, n
 // thus don't need a task.
 static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
   struct ncclKernelPlanner *planner = &comm->planner;
-  comm->devComm->nBytes = info->count*ncclTypeSize(info->datatype);
+  uint64_t nBytes = info->count*ncclTypeSize(info->datatype);
+  hipMemcpy(&comm->devComm->nBytes, &nBytes, sizeof(nBytes), hipMemcpyHostToDevice);
 
   if (info->coll == ncclFuncSend || info->coll == ncclFuncRecv) {
     int peer = info->root;
@@ -2794,7 +2796,7 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
       if (planner->nTasksP2p == 1) {
         auto updateChannels = [&](int channels) {
           comm->p2pnChannelsPerPeer = std::min(channels, comm->p2pnChannels);
-          comm->devComm->p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
+          hipMemcpy(&comm->devComm->p2pnChannelsPerPeer, &comm->p2pnChannelsPerPeer, sizeof(int), hipMemcpyHostToDevice);
         };
         auto maybeRestore = [&]() {
           if (comm->p2pnChannelsPerPeer != comm->oriP2pnChannelsPerPeer) {

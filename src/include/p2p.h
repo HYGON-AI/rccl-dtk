@@ -19,7 +19,7 @@
 // MNNVL: FABRIC handle support lifted from CUDA 12.3
 #define CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_FABRIC_SUPPORTED ((CUdevice_attribute)128)
 #define CU_MEM_HANDLE_TYPE_FABRIC ((CUmemAllocationHandleType)0x8ULL)
-#define CU_IPC_HANDLE_SIZE 64
+#define CU_IPC_HANDLE_SIZE 256
 typedef struct CUmemFabricHandle_st {
     unsigned char data[CU_IPC_HANDLE_SIZE];
 } CUmemFabricHandle_v1;
@@ -69,8 +69,7 @@ ncclResult_t ncclIpcGraphRegisterBuffer(ncclComm* comm, const void* userbuff, si
 
 ncclResult_t ncclIpcDeregBuffer(struct ncclComm* comm, struct ncclIpcRegInfo* regInfo);
 ncclResult_t psmIpcDeregBuffer(struct ncclComm* comm, struct ncclIpcRegInfo* regInfo);
-#ifdef RSMI_SUPPORT_SUPER_NODE
+
 bool isUniqueidInTopo(const char *uniqueId);
-#endif
 
 #endif
