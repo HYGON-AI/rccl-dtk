@@ -754,12 +754,12 @@ ncclResult_t mscclTeardown(const ncclComm_t comm) {
     for (auto &p : status.devAlgos) {
       CUDACHECK(hipFree(p.second));
     }
-    CUDACHECK(hipFree(status.syncFlags));
+    NCCLCHECK(ncclCudaFree(status.syncFlags));
     status.hostAlgos.clear();
     status.devAlgos.clear();
     status.freeAlgoHandles.clear();
     for (auto &p : status.scratchBuffers) {
-      CUDACHECK(hipFree(p.second));
+      NCCLCHECK(ncclCudaFree(p.second));
     }
     status.scratchBuffers.clear();
     status.connectedAlgos.clear();

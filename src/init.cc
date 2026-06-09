@@ -896,7 +896,7 @@ static ncclResult_t commFree(ncclComm_t comm) {
     }
   }
   free(prof);
-  CUDACHECK(hipFree(comm->devComm->devProf));
+  NCCLCHECK(ncclCudaFree(comm->devComm->devProf));
 #endif
 
 #ifdef ENABLE_COLLTRACE
@@ -1383,6 +1383,7 @@ static ncclResult_t fillInfo(struct ncclComm* comm, struct ncclPeerInfo* info, u
   CUDACHECK(hipDeviceGetUuid(&uuid, info->cudaDev));
   memset(info->uniqueId, 0, 32);
   memcpy(info->uniqueId, uuid.bytes, 16); // for hb
+  memset(info->podSn, 0, sizeof(info->podSn));
   info->cuMemSupport = ncclCuMemEnable();
   CUDACHECK(cudaGetDeviceProperties(&prop, comm->cudaDev));
   info->totalGlobalMem = ROUNDUP(prop.totalGlobalMem, (1L << 32));
@@ -1691,11 +1692,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   __atomic_store_n(&comm->peerInfoValid, true, __ATOMIC_RELEASE);
 
   comm->cuMemSupport = 1;
-  #ifdef RSMI_SUPPORT_SUPER_NODE
   comm->isSuperNode = true;
-  #else
-  comm->isSuperNode = false;
-  #endif
   for (int i = 0; i < nranks; i++) {
     if (comm->peerInfo[i].version != comm->peerInfo[rank].version) {
       WARN("Mismatched NCCL version detected : rank %d version %d rank %d version %d",
@@ -1710,11 +1707,15 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
       ret = ncclInvalidUsage;
       goto fail;
     }
-    #ifdef RSMI_SUPPORT_SUPER_NODE
     // check if all peers have uniqueId in topo, if not it is not a supernode system;
     if (comm->isSuperNode && !isUniqueidInTopo(comm->peerInfo[i].uniqueId)) comm->isSuperNode = false;
-    #endif
   }
+  // 当超节点环境且cuMem支持时，使用fabric handle进行通信
+  if(comm->isSuperNode && comm->cuMemSupport) {
+    ncclCuMemHandleType = CU_MEM_HANDLE_TYPE_FABRIC;
+    INFO(NCCL_INIT, "Using HIP Mem Handle Type Fabric for supernode communication");
+  }
+  INFO(NCCL_INIT, "rank %d/%d, cuMemSupport %d, isSuperNode %d, cuMemHandleType %s", rank, nranks, comm->cuMemSupport, comm->isSuperNode, ncclCuMemHandleType == CU_MEM_HANDLE_TYPE_FABRIC ? "Fabric" : "Default");
 
   // AllGather1 - end
   timers[TIMER_INIT_ALLGATHER] = clockNano() - timers[TIMER_INIT_ALLGATHER];
@@ -1971,7 +1972,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   // AllGather3 - begin
   NCCLCHECKGOTO(ncclCalloc(&allGather3Data, nranks), ret, fail);
   int idx;
-  NCCLCHECK(ncclTopoIdToIndex(comm->topo, GPU, comm->busId, &idx));
+  NCCLCHECK(ncclTopoRankToIndex(comm->topo, comm->rank, &idx, /*showWarn=*/true));
   allGather3Data[rank].nc = 2;
   if (comm->topo->nodes[GPU].count == comm->topo->nRanks &&
        IsArchMatch(comm->topo->nodes[GPU].nodes[idx].gpu.gcn, "gfx906") && allXgmi)
