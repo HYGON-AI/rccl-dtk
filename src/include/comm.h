@@ -776,7 +776,7 @@ enum ncclLaunchMode {
 extern enum ncclLaunchMode ncclParamLaunchMode;
 
 void ncclCommPushFree(struct ncclComm* comm, void* buf);
-void ncclCommPushCudaFree(struct ncclComm* comm, void* buf);
+void ncclCommPushCudaFree(struct ncclComm* comm, void* buf, int NoCUMEM=0);
 void ncclCommPushCudaHostFree(struct ncclComm* comm, void* buf);
 void ncclCommPushCudaGdrFree(struct ncclComm* comm, void* handle);
 

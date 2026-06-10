@@ -812,9 +812,18 @@ static ncclResult_t ncclDestructorFnCudaFree(struct ncclDestructor* dtor) {
   NCCLCHECK(ncclCudaFree(dtor->obj));
   return ncclSuccess;
 }
-void ncclCommPushCudaFree(struct ncclComm* comm, void* obj) {
+
+static ncclResult_t ncclDestructorFnCudaFreeNoCumem(struct ncclDestructor* dtor) {
+  NCCLCHECK(ncclCudaFree(dtor->obj, 1));
+  return ncclSuccess;
+}
+
+void ncclCommPushCudaFree(struct ncclComm* comm, void* obj, int NoCumem) {
   struct ncclDestructor* dtor = ncclMemoryStackAlloc<struct ncclDestructor>(&comm->memPermanent);
-  dtor->fn = ncclDestructorFnCudaFree;
+  if (NoCumem)
+    dtor->fn = ncclDestructorFnCudaFreeNoCumem;
+  else
+    dtor->fn = ncclDestructorFnCudaFree;
   dtor->obj = obj;
   dtor->next = comm->destructorHead;
   comm->destructorHead = dtor;
@@ -1206,8 +1215,8 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
 
   memset(&tmpCommAndChans, '\0', sizeof(tmpCommAndChans));
   NCCLCHECKGOTO(ncclStrongStreamAcquire(ncclCudaGraphNone(), &comm->sharedRes->deviceStream, /*concurrent=*/false, &deviceStream), ret, fail);
-  NCCLCHECKGOTO(ncclCudaCallocAsync(&devCommAndChans, 1, deviceStream), ret, fail);
-  ncclCommPushCudaFree(comm, devCommAndChans);
+  NCCLCHECKGOTO(ncclCudaCallocAsync(&devCommAndChans, 1, deviceStream, hipDeviceMallocDefault, 1), ret, fail);
+  ncclCommPushCudaFree(comm, devCommAndChans, 1);
   NCCLCHECKGOTO(ncclCudaCallocAsync(&tmpCommAndChans.comm.rankToLocalRank, comm->nRanks, deviceStream), ret, fail);
   ncclCommPushCudaFree(comm, tmpCommAndChans.comm.rankToLocalRank);
   NCCLCHECKGOTO(ncclCudaMemcpyAsync(tmpCommAndChans.comm.rankToLocalRank, comm->rankToLocalRank, comm->nRanks, deviceStream), ret, fail);
