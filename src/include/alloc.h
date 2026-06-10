@@ -466,7 +466,7 @@ finish:
 #define ncclCudaCalloc(...) ncclCudaCallocDebug(__FILE__, __LINE__, __VA_ARGS__)
 
 template <typename T>
-ncclResult_t ncclCudaCallocAsyncDebug(const char *filefunc, int line, T** ptr, size_t nelem, hipStream_t stream, unsigned int flags = hipDeviceMallocDefault) {
+ncclResult_t ncclCudaCallocAsyncDebug(const char *filefunc, int line, T** ptr, size_t nelem, hipStream_t stream, unsigned int flags = hipDeviceMallocDefault, int noCumem=0) {
   ncclResult_t result = ncclSuccess;
   cudaStreamCaptureMode mode = cudaStreamCaptureModeRelaxed;
   *ptr = nullptr;
@@ -475,7 +475,7 @@ ncclResult_t ncclCudaCallocAsyncDebug(const char *filefunc, int line, T** ptr, s
 
   CUDACHECK(cudaThreadExchangeStreamCaptureMode(&mode));
   if (nelem > 0) {
-    if (ncclCuMemEnable()) {
+    if (ncclCuMemEnable() && !noCumem) {
       NCCLCHECKGOTO(ncclCuMemAllocNoTrack((void **)ptr, NULL, ncclCuMemHandleType, nelem*ncclSizeOfT<T>(), &alloc_size), result, finish);
     } else {
       CUDACHECKGOTO(hipExtMallocWithFlags((void**)ptr, nelem*ncclSizeOfT<T>(), flags), result, finish);
@@ -528,7 +528,7 @@ finish:
 }
 
 template <typename T>
-ncclResult_t ncclCudaFree(T* ptr) {
+ncclResult_t ncclCudaFree(T* ptr, int noCumem=0) {
   ncclResult_t result = ncclSuccess;
   cudaStreamCaptureMode mode = cudaStreamCaptureModeRelaxed;
   TRACE(NCCL_ALLOC, "Cuda Free pointer %p", ptr);
@@ -553,7 +553,7 @@ ncclResult_t ncclCudaFree(T* ptr) {
   }
 
   CUDACHECK(cudaThreadExchangeStreamCaptureMode(&mode));
-  if (ncclCuMemEnable()) {
+  if (ncclCuMemEnable() && !noCumem) {
     NCCLCHECKGOTO(ncclCuMemFreeNoTrack((void *)ptr), result, finish);
   } else {
     CUDACHECKGOTO(cudaFree(ptr), result, finish);
