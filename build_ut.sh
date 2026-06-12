@@ -8,6 +8,7 @@ FULL_STRESS_TEST="OFF"
 BUILD_TYPE="Release"
 JOBS="$(nproc)"
 STAGE="all" # all|gtest|rccl
+ONLY_FUNCS="${ONLY_FUNCS:-}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${ROOT_DIR}/build"
@@ -24,6 +25,7 @@ Options:
   -t, --build-tests ON|OFF     Enable/disable unit tests in RCCL (default: ON)
   -f, --full-stress ON|OFF     Enable/disable FULL_STRESS_TEST (default: OFF)
   -s, --stage STAGE            Build stage: all | gtest | rccl (default: all)
+  -o, --only-funcs FUNCS        Pass -DONLY_FUNCS=FUNCS when configuring RCCL (default: full build)
   -h, --help                   Show this help message
 EOF
 }
@@ -40,6 +42,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -s|--stage)
       STAGE="$2"
+      shift 2
+      ;;
+    -o|--only-funcs)
+      ONLY_FUNCS="$2"
       shift 2
       ;;
     -h|--help)
@@ -149,12 +155,22 @@ build_rccl() {
   fi
 
   echo "==> [2/2] Configure RCCL"
-  cmake -S "${ROOT_DIR}" -B "${RCCL_BUILD_DIR}" \
-    -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
-    -DCMAKE_PREFIX_PATH="${ROCM_PATH};${GTEST_INSTALL_DIR}" \
-    -DGTEST_PATH="${GTEST_INSTALL_DIR}" \
-    -DBUILD_TESTS="${BUILD_TESTS}" \
+  local cmake_args=(
+    -S "${ROOT_DIR}"
+    -B "${RCCL_BUILD_DIR}"
+    -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
+    -DCMAKE_PREFIX_PATH="${ROCM_PATH};${GTEST_INSTALL_DIR}"
+    -DGTEST_PATH="${GTEST_INSTALL_DIR}"
+    -DBUILD_TESTS="${BUILD_TESTS}"
     -DFULL_STRESS_TEST="${FULL_STRESS_TEST}"
+  )
+  if [[ -n "${ONLY_FUNCS}" ]]; then
+    cmake_args+=("-DONLY_FUNCS=${ONLY_FUNCS}")
+  fi
+  printf '==> RCCL configure command: cmake'
+  printf ' %q' "${cmake_args[@]}"
+  printf '\n'
+  cmake "${cmake_args[@]}"
 
   echo "==> [2/2] Build RCCL"
   cmake --build "${RCCL_BUILD_DIR}" --parallel "${JOBS}"
@@ -180,6 +196,7 @@ echo "  FULL_STRESS_TEST=${FULL_STRESS_TEST}"
 echo "  BUILD_TYPE=${BUILD_TYPE}"
 echo "  JOBS=${JOBS}"
 echo "  STAGE=${STAGE}"
+echo "  ONLY_FUNCS=${ONLY_FUNCS:-<full build>}"
 echo "  BUILD_DIR=${BUILD_DIR}"
 echo "  GTEST_BUILD_DIR=${GTEST_BUILD_DIR}"
 echo "  GTEST_INSTALL_DIR=${GTEST_INSTALL_DIR}"
