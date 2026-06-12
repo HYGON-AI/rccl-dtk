@@ -30,6 +30,7 @@ export ROCM_PATH=/opt/rocm
 - `BUILD_TYPE=Release`
 - `JOBS=$(nproc)`
 - `STAGE=all`
+- `ONLY_FUNCS` 为空，默认全量编译
 
 目录固定为：
 
@@ -53,6 +54,11 @@ export ROCM_PATH=/opt/rocm
   - `all`：先构建 gtest，再构建 rccl（默认）
   - `gtest`：只构建 gtest
   - `rccl`：只构建 rccl（要求已有 `build/gtest-install`）
+
+- `-o, --only-funcs FUNCS`
+  - 只在构建 RCCL 时传递 `-DONLY_FUNCS=FUNCS`
+  - 未指定该参数，且环境变量 `ONLY_FUNCS` 为空时，不传递 `-DONLY_FUNCS`，执行全量编译
+  - 也可以通过环境变量设置：`ONLY_FUNCS=FUNCS ./build_ut.sh`
 
 - `-h, --help`
   - 输出帮助信息
@@ -87,6 +93,40 @@ export ROCM_PATH=/opt/rocm
 
 ```bash
 ./build_ut.sh -t ON -f ON
+```
+
+只编译指定 RCCL 函数：
+
+```bash
+./build_ut.sh --only-funcs "AllReduce"
+
+./build_ut.sh --only-funcs "AllReduce * * Sum i32"
+
+./build_ut.sh --only-funcs "AllReduce * * Sum i32|AllReduce RING * Max f32"
+```
+
+通过环境变量指定 RCCL 函数：
+
+```bash
+ONLY_FUNCS="AllReduce" ./build_ut.sh
+
+ONLY_FUNCS="AllReduce * * Sum i32" ./build_ut.sh
+
+ONLY_FUNCS="AllReduce * * Sum i32|AllReduce RING * Max f32" ./build_ut.sh
+```
+
+## 构建日志
+
+在 `Configure RCCL` 阶段，脚本会打印实际执行的 cmake 配置命令，例如：
+
+```bash
+==> RCCL configure command: cmake -S ... -B ... -DBUILD_TESTS=ON ...
+```
+
+如果指定了 `ONLY_FUNCS`，打印的命令中会包含：
+
+```bash
+-DONLY_FUNCS=AllReduce
 ```
 
 ## 清理策略
