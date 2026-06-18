@@ -1369,8 +1369,24 @@ endif()
 ## Track linking time
 set_property(TARGET rccl PROPERTY RULE_LAUNCH_LINK "${CMAKE_COMMAND} -E time")
 
-## Setup librccl.so version
-rocm_set_soversion(rccl "1.0")
+
+## Setup librccl.so version with git commit ID
+execute_process(COMMAND git log --pretty=format:'%h' -n 1
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                OUTPUT_VARIABLE GIT_REV
+                ERROR_QUIET)
+string(STRIP "${GIT_REV}" GIT_REV)
+string(SUBSTRING "${GIT_REV}" 1 7 GIT_REV)
+
+if("${GIT_REV}" STREQUAL "")
+  set(GIT_REV "unknown")
+endif()
+
+set(RCCL_SOVERSION "1.0.${GIT_REV}")
+message(STATUS "RCCL SOVERSION: ${RCCL_SOVERSION}")
+rocm_set_soversion(rccl "${RCCL_SOVERSION}")
+
+
 
 if(NOT BUILD_SHARED_LIBS)
   # To create a static lib with `-fgpu-rdc`, you need `--emit-static-lib` and `--hip-link`.

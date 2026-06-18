@@ -45,6 +45,8 @@ static void shmHandleInit(int fd, char* shmPath, size_t shmSize, size_t realShmS
   return;
 }
 
+RCCL_PARAM(DelayUnlikShm, "DELAY_UNLINK_SHM", 0);
+
 ncclResult_t ncclShmOpen(char* shmPath, size_t shmPathSize, size_t shmSize, void** shmPtr, void** devShmPtr, int refcount, ncclShmHandle_t* handle) {
   int fd = -1;
   char* hptr = NULL;
@@ -88,7 +90,7 @@ ncclResult_t ncclShmOpen(char* shmPath, size_t shmPathSize, size_t shmSize, void
       ret = ncclSystemError;
       goto fail;
     }
-    INFO(NCCL_ALLOC, "Allocated %ld bytes of shared memory in %s", realShmSize, shmPath);
+    INFO(NCCL_ALLOC, "Allocated %ld bytes of shared memory in %s refcount = %d", realShmSize, shmPath, refcount);
   } else {
     SYSCHECKGOTO(fd = open(shmPath, O_RDWR, S_IRUSR | S_IWUSR), "open", ret, fail);
   }
@@ -105,10 +107,15 @@ ncclResult_t ncclShmOpen(char* shmPath, size_t shmPathSize, size_t shmSize, void
     *(int*)(hptr + shmSize) = refcount;
   } else {
     int remref = ncclAtomicRefCountDecrement((int*)(hptr + shmSize));
+    INFO(NCCL_ALLOC, "ncclAtomicRefCountDecrement ncclShmOpen %ld bytes of shared memory in %s refcount = %d",
+            realShmSize, shmPath, remref);
     if (remref == 0) {
-      /* the last peer has completed attachment, it should unlink the shm mem file. */
-      if (unlink(shmPath) != 0) {
-        INFO(NCCL_ALLOC, "unlink shared memory %s failed, error: %s (%d)", shmPath, strerror(errno), errno);
+      INFO(NCCL_ALLOC, "ncclShmOpen unlink shared memory %s %ld bytes as refcount = %d", shmPath, realShmSize, remref);
+      if (rcclParamDelayUnlikShm() == 0) {
+        /* the last peer has completed attachment, it should unlink the shm mem file. */
+        if (unlink(shmPath) != 0) {
+          INFO(NCCL_ALLOC, "unlink shared memory %s failed, error: %s (%d)", shmPath, strerror(errno), errno);
+        }
       }
     }
   }
@@ -147,13 +154,17 @@ ncclResult_t ncclShmClose(ncclShmHandle_t handle) {
   if (tmphandle) {
     if (tmphandle->fd >= 0) {
       close(tmphandle->fd);
-      if (tmphandle->shmPath != NULL && tmphandle->refcount != NULL && *tmphandle->refcount > 0) {
+      //if (tmphandle->shmPath != NULL && tmphandle->refcount != NULL && *tmphandle->refcount > 0) {
+    if (tmphandle->shmPath != NULL && tmphandle->refcount != NULL
+      && ((*tmphandle->refcount > 0) || (rcclParamDelayUnlikShm() == 1))) {
+      INFO(NCCL_ALLOC, "ncclShmClose unlink shared memory %s %ld bytes refcount = %d", tmphandle->shmPath, tmphandle->realShmSize, *tmphandle->refcount);
         if (unlink(tmphandle->shmPath) != 0) {
           WARN("unlink shared memory %s failed, error: %s (%d)", tmphandle->shmPath, strerror(errno), errno);
           ret = ncclSystemError;
         }
       }
       free(tmphandle->shmPath);
+      tmphandle->shmPath = NULL;
     }
 
     if (tmphandle->shmPtr) {
@@ -173,12 +184,15 @@ ncclResult_t ncclShmUnlink(ncclShmHandle_t handle) {
   struct shmHandleInternal* tmphandle = (struct shmHandleInternal*)handle;
   if (tmphandle) {
     if (tmphandle->shmPath != NULL && tmphandle->refcount != NULL && *tmphandle->refcount > 0) {
-      if (unlink(tmphandle->shmPath) != 0) {
-        WARN("unlink shared memory %s failed, error: %s (%d)", tmphandle->shmPath, strerror(errno), errno);
-        ret = ncclSystemError;
+      if (rcclParamDelayUnlikShm() == 0) {
+        INFO(NCCL_ALLOC, "ncclShmUnlink unlink shared memory %s %ld bytes refcount = %d", tmphandle->shmPath, tmphandle->realShmSize, *tmphandle->refcount);
+        if (unlink(tmphandle->shmPath) != 0) {
+          WARN("unlink shared memory %s failed, error: %s (%d)", tmphandle->shmPath, strerror(errno), errno);
+          ret = ncclSystemError;
+        }
+        free(tmphandle->shmPath);
+        tmphandle->shmPath = NULL;
       }
-      free(tmphandle->shmPath);
-      tmphandle->shmPath = NULL;
     }
   }
   return ret;

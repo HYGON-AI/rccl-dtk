@@ -475,6 +475,18 @@ typedef enum ncclGroupTaskType {
   ncclGroupTaskTypeNum = 2,
 } ncclGroupTaskType_t;
 
+#define MAX_PLANES 8
+#define MAX_NET_PER_PLANE 8
+#define MAX_GPU_PER_PLANE 8
+#define MAX_ELEMENT_LENGTH 64
+
+struct PlaneInfo {
+  uint8_t planeNum;
+  uint8_t devNumPerPlane[MAX_PLANES];
+  char devNamePerPlane[MAX_PLANES][MAX_NET_PER_PLANE][MAX_ELEMENT_LENGTH];    // 每个平面的网卡名称
+  int planeDevToGpuRank[MAX_PLANES][MAX_GPU_PER_PLANE + 1];     // 每个平面的 GPU rank
+};
+
 struct ncclComm {
   uint64_t startMagic;
   struct ncclMemoryStack memPermanent, memScoped;
@@ -760,6 +772,8 @@ struct ncclComm {
   // gfx name from hipDeviceProp_t [RCCL]
   char* archName;
   // multiProcessorCount from hipDeviceProp_t [RCCL]
+  // 支持双平面
+  struct PlaneInfo *planeInfo;
   int cuCount;
   char detectTopoPath[CACHE_LINE_SIZE];
   uint64_t endMagic;

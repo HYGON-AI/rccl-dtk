@@ -1605,7 +1605,64 @@ ncclResult_t ncclTopoGetLocalNet(struct ncclTopoSystem* system, int rank, int ch
   return ncclSuccess;
 }
 
-ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex) {
+ncclResult_t ncclTopoGetLocalGpuForGPUBalance(struct ncclTopoSystem* system, int rank, int localRank, int channelId, int* gpuIndex) {
+  ncclResult_t ret = ncclSuccess;
+  int64_t netId = -1;
+  int netDev = -1;
+  int* rankGetLocalGpus = NULL;
+  int rankGetlocalGpuCount = 0;
+  int* localRankGetlocalGpus = NULL;
+  int localRankGetlocalGpuCount = 0;
+  int rankToIndex = -1;
+  int g_tmp;
+
+  // Step 1: 获取当前 rank 的 net 及关联 GPU 列表
+  ret = ncclTopoGetLocalNet(system, rank, channelId, &netId, &netDev);
+  if (ret != ncclSuccess) goto cleanup;
+
+  ret = ncclTopoGetLocalGpu(system, netId, &g_tmp, &rankGetLocalGpus, &rankGetlocalGpuCount);
+  if (ret != ncclSuccess) goto cleanup;
+
+  // 查找当前 rank 在列表中的索引
+  for (int lg = 0; lg < rankGetlocalGpuCount; lg++) {
+    struct ncclTopoNode* gpu = system->nodes[GPU].nodes + rankGetLocalGpus[lg];
+    if (gpu->gpu.rank == rank) {
+      rankToIndex = lg;
+      break;
+    }
+  }
+
+  if (rankToIndex == -1) {
+    *gpuIndex = -1;
+    goto cleanup;
+  }
+
+  // Step 2: 获取 peer localRank 的 net 及关联 GPU 列表
+  ret = ncclTopoGetLocalNet(system, localRank, channelId, &netId, &netDev);
+  if (ret != ncclSuccess) goto cleanup;
+
+  ret = ncclTopoGetLocalGpu(system, netId, &g_tmp, &localRankGetlocalGpus, &localRankGetlocalGpuCount);
+  if (ret != ncclSuccess) goto cleanup;
+
+  // Step 3: 映射索引，得到最终 GPU，增加空指针保护
+  if (rankToIndex < localRankGetlocalGpuCount && localRankGetlocalGpus != NULL) {
+    *gpuIndex = localRankGetlocalGpus[rankToIndex];
+  } else if (localRankGetlocalGpuCount > 0 && localRankGetlocalGpus != NULL) {
+    // fallback：取第一个元素，但确保数组非空
+    *gpuIndex = *localRankGetlocalGpus;
+  } else {
+    // 无可用 GPU，返回 -1
+    *gpuIndex = -1;
+    WARN("ncclTopoGetLocalGpuForGPUBalance: no valid GPU found for localRank %d", localRank);
+  }
+
+cleanup:
+  if (rankGetLocalGpus) free(rankGetLocalGpus);
+  if (localRankGetlocalGpus) free(localRankGetlocalGpus);
+  return ret;
+}
+
+ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex, int** gpus, int* gpuCount) {
   ncclResult_t ret = ncclSuccess;
   int netIndex;
   NCCLCHECK(ncclTopoIdToIndex(system, NET, netId, &netIndex));
@@ -1613,7 +1670,6 @@ ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, i
   int localGpus[NCCL_TOPO_MAX_NODES];
   int localGpuCount;
   NCCLCHECK(ncclTopoGetLocal(system, NET, netIndex, GPU, localGpus, &localGpuCount, NULL));
-
   int foundGpu = -1;
   for (int c=0; c<MAXCHANNELS; c++) {
     for (int lg=0; lg<localGpuCount; lg++) {
@@ -1622,6 +1678,17 @@ ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, i
       int64_t id;
       NCCLCHECK(ncclTopoGetLocalNet(system, gpu->gpu.rank, c, &id, NULL));
       if (netId == id) {
+        *gpuIndex = g;
+        if (gpus) {
+          // Dynamically allocate memory and copy data to gpus instead of returning a stack address.
+          NCCLCHECK(ncclCalloc(gpus, localGpuCount));
+          memcpy(*gpus, localGpus, localGpuCount * sizeof(int));
+          *gpuCount = localGpuCount;
+        } else {
+          if(gpuCount) {
+            *gpuCount = localGpuCount;
+          }
+        }
         foundGpu = g;
         goto exit;
       }
