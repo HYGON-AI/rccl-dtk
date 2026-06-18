@@ -38,6 +38,7 @@
 #include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 #include <map>
 #include <string>
@@ -67,6 +68,7 @@
 #include "latency_profiler/CollTrace.h"
 #include "latency_profiler/CollTraceFunc.h"
 #include "rocm_smi_wrap.h"
+#include "mkfd_ioctl.h"
 
 #ifndef STR2
   #define STR2(v) #v
@@ -336,32 +338,101 @@ static ncclResult_t ncclGetSysGpuToNic(std::map<int, std::vector<int>>& ncclSysG
   return ncclSuccess;
 }
 
-static ncclResult_t ncclForceUniformAffinity(const std::map<int, std::vector<int>>& ncclSysGpuToNic,
-                                             std::map<int, std::vector<int>>& gpuToBestNicMap) {
+static ncclResult_t ncclGetGpuKfd(std::vector<int>& ncclKfdIds) {
+  ncclKfdIds.clear();
+  for (int i = 0; i < MAX_KFD_NODES; i++) {
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "/sys/devices/virtual/kfd/kfd/topology/nodes/%d/gpu_id", i);
+    FILE* fp = fopen(path, "r");
+    if (!fp) continue;
+    uint32_t kfdId = 0;
+    if (fscanf(fp, "%u", &kfdId) == 1) {
+      if (kfdId == 0) {
+        fclose(fp);
+        continue;
+      }
+      ncclKfdIds.push_back(kfdId);
+    }
+    fclose(fp);
+  }
+  INFO(NCCL_INIT, "Detected %zu GPUs from KFD sysfs", ncclKfdIds.size());
+  return ncclSuccess;
+}
+
+static ncclResult_t ncclGetOamToGpuMap(std::map<int, std::vector<int>>& ncclOamToGpus, int oamGroupMember) {
+  ncclOamToGpus.clear();
+  int gpuCount = 0;
+  CUDACHECK(cudaGetDeviceCount(&gpuCount));
+  int fd = open("/dev/mkfd", O_RDWR | O_CLOEXEC);
+  if (fd < 0) return ncclInternalError;
+  std::vector<int> ncclKfdIds;
+  NCCLCHECK(ncclGetGpuKfd(ncclKfdIds));
+
+  for (int gpu = 0; gpu < gpuCount && gpu < ncclKfdIds.size(); gpu++) {
+    struct mkfd_ioctl_regs_op_args args = {0};
+    args.gpu_id = ncclKfdIds[gpu];
+    args.read = true;
+    args.reg = REG_SOCKET_ID;
+    int ret = ioctl(fd, MKFD_IOC_REGS_OP, &args);
+    if (ret < 0) {
+      WARN( "DetectTopo GPU %d failed to get OAM: %s", gpu, strerror(errno));
+      close(fd);
+      return ncclInternalError;
+    }
+    ncclOamToGpus[(args.value / oamGroupMember)].push_back(gpu);
+  }
+  close(fd);
+
+  for (const auto& oamToGpus : ncclOamToGpus) {
+    std::string gpuList;
+    for (size_t i = 0; i < oamToGpus.second.size(); ++i) {
+      if (i > 0) gpuList += " ";
+      gpuList += std::to_string(oamToGpus.second[i]);
+    }
+    INFO(NCCL_INIT, "DetectTopo OAM %d GPUs: %s", oamToGpus.first, gpuList.c_str());
+  }
+  return ncclSuccess;
+}
+
+static bool checkGpuNum() {
   int gpuCount = 0;
   CUDACHECK(cudaGetDeviceCount(&gpuCount));
   if (gpuCount % 8 != 0) {
     INFO(NCCL_INIT, "DetectTopo GPU count %d is not a multiple of 8, skipping topology detection", gpuCount);
-    return ncclSuccess;
+    return false;
   }
-  
+  return true;
+}
+
+static ncclResult_t ncclForceUniformAffinity(const std::map<int, std::vector<int>>& ncclSysGpuToNic,
+                                             std::map<int, std::vector<int>>& gpuToBestNicMap) {
+  ncclResult_t ret = ncclSuccess;
+  if (!checkGpuNum()) return ncclSuccess;
+  std::map<int, std::vector<int>> ncclOamToGpus;
   int noGpuCount = 0;
-  for (int gpu = 0; gpu < gpuCount; gpu+=2) {
-    int peerGpu = gpu + 1;
-    auto gpuIt = ncclSysGpuToNic.find(gpu);
-    auto peerGpuIt = ncclSysGpuToNic.find(peerGpu);
-    if (gpuIt != ncclSysGpuToNic.end()) {
-      gpuToBestNicMap[gpu] = gpuIt->second;
-      gpuToBestNicMap[peerGpu] = gpuIt->second;
-    } else if (peerGpuIt != ncclSysGpuToNic.end()) {
-      gpuToBestNicMap[gpu] = peerGpuIt->second;
-      gpuToBestNicMap[peerGpu] = peerGpuIt->second;
-    } else {
-      noGpuCount += 2;
+  NCCLCHECKGOTO(ncclGetOamToGpuMap(ncclOamToGpus, 2), ret, failed);
+  for (int oam = 0; oam < ncclOamToGpus.size(); oam++) {
+    while (!ncclOamToGpus[oam].empty()) {
+      int gpu0 = ncclOamToGpus[oam].back();
+      ncclOamToGpus[oam].pop_back();
+      int gpu1 = ncclOamToGpus[oam].back();
+      ncclOamToGpus[oam].pop_back();
+
+      auto it0 = ncclSysGpuToNic.find(gpu0);
+      auto it1 = ncclSysGpuToNic.find(gpu1);
+      if (it0 != ncclSysGpuToNic.end()) {
+        gpuToBestNicMap[gpu0] = it0->second;
+        gpuToBestNicMap[gpu1] = it0->second;
+      } else if (it1 != ncclSysGpuToNic.end()) {
+        gpuToBestNicMap[gpu0] = it1->second;
+        gpuToBestNicMap[gpu1] = it1->second;
+      } else {
+        noGpuCount += 2;
+      }
     }
   }
-
   if (noGpuCount) gpuToBestNicMap.clear();
+failed:
   return ncclSuccess;
 }
 
