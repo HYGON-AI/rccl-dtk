@@ -623,6 +623,7 @@ set(SRC_FILES
   src/include/plugin/tuner/tuner_v2.h
   src/include/plugin/tuner/tuner_v3.h
   src/include/plugin/tuner/tuner_v4.h
+  src/include/mkfd_ioctl.h
   src/misc/alt_rsmi.cc
   src/misc/archinfo.cc
   src/misc/argcheck.cc
