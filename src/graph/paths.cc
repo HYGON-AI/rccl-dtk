@@ -628,27 +628,64 @@ ncclResult_t ncclTopoGetPxnRanks(struct ncclComm* comm, int** intermediateRanks,
   struct ncclTopoSystem* system = comm->topo;
   *nranks = 0;
   *intermediateRanks = NULL;
-  if (system->nodes[NET].count == 0) return ncclSuccess;
+
+  if (system->nodes[NET].count == 0) {
+    return ncclSuccess;
+  }
 
   int nr = 0;
   int* ranks = NULL;
-  for (int rank=0; rank<comm->nRanks; rank++) {
+
+  for (int rank = 0; rank < comm->nRanks; rank++) {
     int64_t netId;
     int proxyRank;
+
+    // When the dual-plane detection determines that the streams are on the same plane, skip the proxy and directly continue.
+    if (getenv("RCCL_NET_PLANE") != NULL) {
+      int samePlan = 0;
+      NCCLCHECK(ncclTopoNetPlaneCheck(comm, &samePlan, comm->rank, rank));
+      if (samePlan) continue;
+    }
+
     NCCLCHECK(ncclTopoGetNetDev(comm, comm->rank, NULL, 0, rank, &netId, NULL, &proxyRank));
     if (proxyRank == comm->rank) continue;
+
     enum ncclTopoGdrMode useGdr;
     NCCLCHECK(ncclTopoCheckGdr(comm->topo, comm->rank, netId, 1, &useGdr));
     if (useGdr == ncclTopoGdrModeDisable) continue;
+
     int found = 0;
-    for (int r=0; r<nr; r++) {
+    for (int r = 0; r < nr; r++) {
       if (ranks[r] == proxyRank) found = 1;
     }
     if (!found) {
-      NCCLCHECK(ncclRealloc(&ranks, nr, nr+1));
+      NCCLCHECK(ncclRealloc(&ranks, nr, nr + 1));
       ranks[nr++] = proxyRank;
     }
   }
+
+  // 构建日志（即使部分失败也不影响功能）
+  char buf[1024];
+  size_t pos = 0;
+  int ret = snprintf(buf, sizeof(buf), "ncclTopoGetPxnRanks - curRank %d : ", comm->rank);
+  if (ret > 0 && ret < (int)sizeof(buf)) {
+    pos = ret;
+    for (int i = 0; i < nr; i++) {
+      int remaining = (int)sizeof(buf) - (int)pos;
+      if (remaining <= 1) break;
+      int written = snprintf(buf + pos, remaining, "%d ", ranks[i]);
+      if (written <= 0) break;
+      pos += written;
+      if (pos >= sizeof(buf) - 1) {
+        buf[sizeof(buf) - 1] = '\0';
+        break;
+      }
+    }
+  } else {
+    buf[sizeof(buf) - 1] = '\0';
+  }
+  INFO(NCCL_INIT | NCCL_NET, "%s", buf);
+
   *nranks = nr;
   *intermediateRanks = ranks;
   return ncclSuccess;
