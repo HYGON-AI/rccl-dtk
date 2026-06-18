@@ -1428,7 +1428,19 @@ ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoG
         int n, g1, g2;
         NCCLCHECK(ncclTopoIdToIndex(comm->topo, NET, netId, &n));
         NCCLCHECK(ncclTopoRankToIndex(comm->topo, rank, &g1, /*showWarn=*/true));
+
+        const char *loadbalancingType = ncclGetEnv("RCCL_PXN_GPU_BALANCE");
+        if (loadbalancingType != NULL) {
+          INFO(NCCL_ENV, "RCCL_PXN_GPU_BALANCE set by environment to %s.", loadbalancingType);
+          if (strcmp(loadbalancingType, "1") == 0) {   // new GPU Balancing + netTransport->send/recvSetup() / ncclTopoGetPxnRanks()
+            NCCLCHECK(ncclTopoGetLocalGpuForGPUBalance(comm->topo, rank, localRank, channelId, &g2));
+          } else {   // default
+            goto default_loadbalancing;
+          }
+        } else {  // default
+default_loadbalancing:
         NCCLCHECK(ncclTopoGetLocalGpu(comm->topo, netId, &g2));
+        }
         if (g2 != -1) {
           struct ncclTopoNode* peerGpu = comm->topo->nodes[GPU].nodes+g2;
           int pxnType = ncclParamPxnC2c() ? PATH_P2C : PATH_PXB;
@@ -1441,6 +1453,83 @@ ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoG
         }
       }
     }
+  }
+  return ncclSuccess;
+}
+
+ncclResult_t ncclTopoNetPlaneCheck(struct ncclComm* comm, int *same, int myRank, int peerRank) {
+  INFO(NCCL_INIT|NCCL_NET, "ncclTopoNetPlaneCheck begin, myRank = %d, peerRank = %d, comm->node = %d, comm->nodeRanks->localRanks = %d, comm->nNodes = %d",
+  myRank, peerRank, comm->node, comm->nodeRanks->localRanks, comm->nNodes);
+
+  if ((comm == NULL) || (same == NULL)) {
+    return ncclInternalError;
+  }
+
+  *same = 0;
+  if (((comm->nNodes == 2) && (comm->nodeRanks->localRanks == 4)) || (comm->nNodes > 2)) {
+    INFO(NCCL_INIT|NCCL_NET, "ncclTopoNetPlaneCheck end, ignore the RCCL_NET_PLANE for comm->node %d and comm->nodeRanks %d",
+    comm->node, comm->nodeRanks->localRanks);
+    return ncclSuccess;
+  }
+  struct PlaneInfo *pInfo = comm->planeInfo;
+  int nvmlDev0 = comm->peerInfo[myRank].nvmlDev;
+  int nvmlDev1 = comm->peerInfo[peerRank].nvmlDev;
+
+  if (pInfo->planeNum == 0) {
+    *same = 1;
+    goto ret;
+  }
+
+  for (int i = 0; i < pInfo->planeNum; i++) {
+    int count = 0;
+    for (int j = 1; j <= pInfo->planeDevToGpuRank[i][0]; j++) {
+      if (comm->peerInfo[pInfo->planeDevToGpuRank[i][j]].nvmlDev == nvmlDev0) {
+        count++;
+      }
+      if (comm->peerInfo[pInfo->planeDevToGpuRank[i][j]].nvmlDev == nvmlDev1) {
+        count++;
+      }
+
+      if (count == 2) {
+        *same = 1;
+        goto ret;
+      }
+    }
+  }
+
+ret:
+  INFO(NCCL_INIT|NCCL_NET, "ncclTopoNetPlaneCheck end, samePlane = %d, myRank:nvmlDev = %d:%d, peerRank:nvmlDev = %d:%d\n", *same, myRank, nvmlDev0, peerRank, nvmlDev1);
+  return ncclSuccess;
+}
+
+ncclResult_t ncclTopoGetLocalNetDevForSamePlane(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank) {
+  int64_t netId = -1;
+  int netDev = -1;
+  if (NULL == proxyRank) {
+    return ncclInternalError;
+  }
+  *proxyRank = rank;
+  if (graph) {
+    // Honor the net device in the graph
+    int channel = channelId%graph->nChannels;
+    int ngpus = comm->topo->nodes[GPU].count;
+    int index = graph->intra[channel*ngpus] == rank ? 0 : 1;
+    if (graph->pattern != NCCL_TOPO_PATTERN_NVLS) {
+      netId = graph->inter[channel*2+index];
+    } else {
+      NCCLCHECK(getNvlsNetDev(comm, graph, channelId, &netId));
+    }
+    NCCLCHECK(ncclTopoIdToNetDev(comm->topo, netId, &netDev));
+    if (dev) *dev = netDev;
+    if (id) *id = netId;
+  } else if (peerRank == -1) {
+    return ncclInternalError;
+  } else {
+    // Start with our local NIC and local Rank
+    NCCLCHECK(ncclTopoGetLocalNet(comm->topo, rank, channelId, &netId, &netDev));
+    if (dev) *dev = netDev;
+    if (id) *id = netId;
+    *proxyRank = rank;
   }
   return ncclSuccess;
 }

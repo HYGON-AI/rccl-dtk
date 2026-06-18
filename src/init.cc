@@ -982,6 +982,7 @@ static ncclResult_t commFree(ncclComm_t comm) {
   free(comm->topParentRanks);
   free(comm->topParentLocalRanks);
   free(comm->gproxyConn);
+  free(comm->planeInfo);
 
   NCCLCHECK(ncclRegCleanup(comm));
 
@@ -1057,6 +1058,19 @@ ncclResult_t ncclCommEnsureReady(ncclComm_t comm) {
 
 exit:
   return ret;
+}
+
+static void initPlaneInfo(PlaneInfo *pInfo) {
+  pInfo->planeNum = 0;
+  for (int i = 0; i < MAX_PLANES; i++) {
+    pInfo->devNumPerPlane[i] = 0;
+  }
+  for (int i = 0; i < MAX_PLANES; i++) {
+    pInfo->planeDevToGpuRank[i][0] = 0;
+    for (int j = 0; j < MAX_NET_PER_PLANE; j++) {
+      pInfo->devNamePerPlane[i][j][0] = '\0';
+    }
+  }
 }
 
 RCCL_PARAM(InjectFaults, "INJECT_FAULTS", 0);
@@ -1200,6 +1214,10 @@ static ncclResult_t commAlloc(struct ncclComm* comm, struct ncclComm* parent, in
   } while (0);
 
   ncclIntruQueueConstruct(&comm->eventCallbackQueue);
+
+  // 申请 PlaneInfo 对象并初始化
+  NCCLCHECK(ncclCalloc(&comm->planeInfo, 1));
+  initPlaneInfo(comm->planeInfo);
 
   return ncclSuccess;
 }
@@ -1622,6 +1640,116 @@ bool checkXdpStatus() {
   }
   fclose(file);
   return result;
+}
+
+static void parseNetPlaneInfoStr(const char *netPlaneInfoStr, struct PlaneInfo *info) {
+  const char *pbegin = netPlaneInfoStr;
+  const char *pend;
+
+  INFO(NCCL_INIT, "netPlaneInfoStr = %s", netPlaneInfoStr);
+
+  while (*pbegin) {
+    if (isspace(*pbegin) || *pbegin == ',' || *pbegin == '|') {
+      ++pbegin;
+      continue;
+    }
+
+    pend = pbegin + 1;
+    while (true) {
+      char delim = *pend;
+      if (delim == ',' || delim == '|' || delim == '\0') {
+        size_t len = pend - pbegin;
+        if (len >= MAX_ELEMENT_LENGTH) {
+          WARN("devNamePerPlane length (%zu) exceeds %d, truncated", len, MAX_ELEMENT_LENGTH - 1);
+          len = MAX_ELEMENT_LENGTH - 1;
+        }
+        if (info->devNumPerPlane[info->planeNum] == MAX_NET_PER_PLANE) {
+          WARN("devNumPerPlane exceeds %d elements per plane", MAX_NET_PER_PLANE);
+        } else {
+          int idx = info->devNumPerPlane[info->planeNum];
+          memcpy(info->devNamePerPlane[info->planeNum][idx], pbegin, len);
+          info->devNamePerPlane[info->planeNum][idx][len] = '\0';
+          info->devNumPerPlane[info->planeNum] = idx + 1;
+        }
+
+        if (delim == '|' || delim == '\0') {
+          info->planeNum++;
+          if (info->planeNum == MAX_PLANES) {
+            goto ret;
+          }
+        }
+        break;
+      }
+      ++pend;
+    }
+    pbegin = pend;
+  }
+
+ret:
+  for (int i = 0; i < info->planeNum; i++) {
+    INFO(NCCL_INIT, "plane %d devNumPerPlane = %d", i, info->devNumPerPlane[i]);
+    for (int j = 0; j < info->devNumPerPlane[i]; j++) {
+      INFO(NCCL_INIT, "plane %d devNamePerPlane[%d] = %s", i, j, info->devNamePerPlane[i][j]);
+    }
+  }
+
+  INFO(NCCL_INIT, "netPlaneInfoStr = %s parse over with %d planes", netPlaneInfoStr, info->planeNum);
+}
+
+static bool checkGpuInPlaneUse(struct PlaneInfo *planeInfo, int planeId, int rank) {
+  for (int i = 1; i <= planeInfo->planeDevToGpuRank[planeId][0]; i++) {
+    if (planeInfo->planeDevToGpuRank[planeId][i] == rank) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void ncclCommInitPlaneDevToGpuRank(struct ncclComm* comm) {
+  INFO(NCCL_INIT, "ncclCommInitPlaneDevToGpuRank begin");
+  struct PlaneInfo *info = comm->planeInfo;
+  for (int i = 0; i < info->planeNum; i++) {
+    for (int j = 0; j < info->devNumPerPlane[i]; j++) {
+      for (int k = 0; k < comm->topo->nodes[NET].count; k++) {
+        ncclNetProperties_t props;
+        NCCLCHECK(comm->ncclNet->getProperties(comm->topo->nodes[NET].nodes[k].net.dev, &props));
+        if (strcmp(props.name, info->devNamePerPlane[i][j]) == 0) {
+          int localNetId = comm->topo->nodes[NET].nodes[k].net.dev;
+          struct ncclTopoSystem* system = comm->topo;
+          struct ncclTopoLinkList* paths = system->nodes[NET].nodes[localNetId].paths[GPU];
+          for (int l = 0; l < system->nodes[GPU].count; l++) {
+            if (paths[l].type <= PATH_PXB) {
+              int gpurank = system->nodes[GPU].nodes[l].gpu.rank;
+              if (!checkGpuInPlaneUse(info, i, gpurank)) {
+                ++info->planeDevToGpuRank[i][0];
+                info->planeDevToGpuRank[i][info->planeDevToGpuRank[i][0]] = gpurank;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  for (int i = 0; i < info->planeNum; i++) {
+    INFO(NCCL_INIT, "plane %d has %d GPU(s)", i, info->planeDevToGpuRank[i][0]);
+    for (int j = 1; j <= info->planeDevToGpuRank[i][0]; j++) {
+      INFO(NCCL_INIT, "plane %d gpu rank = %d", i, info->planeDevToGpuRank[i][j]);
+    }
+  }
+
+  INFO(NCCL_INIT, "ncclCommInitPlaneDevToGpuRank end");
+}
+
+static ncclResult_t ncclCommInitPlaneInfo(struct ncclComm* comm) {
+  INFO(NCCL_INIT, "ncclCommInitPlaneInfo begin");
+  const char* netPlaneInfoStr = ncclGetEnv("RCCL_NET_PLANE");
+  if (netPlaneInfoStr != NULL) {
+    parseNetPlaneInfoStr(netPlaneInfoStr, comm->planeInfo);
+    ncclCommInitPlaneDevToGpuRank(comm);
+  }
+  INFO(NCCL_INIT, "ncclCommInitPlaneInfo end");
+  return ncclSuccess;
 }
 
 #define TIMER_INIT_TOTAL 0
@@ -2199,6 +2327,9 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   timers[TIMER_INIT_ALLGATHER] += clockNano() - timers[TIMER_INIT_CONNECT];
 
   TRACE(NCCL_INIT, "rank %d nranks %d - BUILT %d TREES/RINGS", rank, nranks, comm->nChannels);
+
+  // 检测双平面信息
+  ncclCommInitPlaneInfo(comm);
 
   char line[4096];
   line[0]='\0';

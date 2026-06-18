@@ -234,7 +234,21 @@ static ncclResult_t sendSetup(struct ncclComm* comm, struct ncclTopoGraph* graph
   int proxyRank = myInfo->rank;
   int64_t netId;
   if (connIndex == NCCL_CONN_IDX_P2P_NET) NCCLCHECK(ncclTopoGetIntraNetDev(comm->topo, myInfo->rank, graph, channelId, 1, &netId, &req.netDev));
-  if (req.netDev < 0) NCCLCHECK(ncclTopoGetNetDev(comm, myInfo->rank, graph, channelId, peerInfo->rank, &netId, &req.netDev, &proxyRank));
+  if (req.netDev < 0) {
+    if ((0 == ncclPxnDisable(comm)) && (getenv("RCCL_NET_PLANE") != NULL)) {
+      int samePlan = 0;
+      NCCLCHECK(ncclTopoNetPlaneCheck(comm, &samePlan, myInfo->rank, peerInfo->rank));
+      if (samePlan) {
+        NCCLCHECK(ncclTopoGetLocalNetDevForSamePlane(comm, myInfo->rank, graph, channelId, peerInfo->rank, &netId, &req.netDev, &proxyRank));
+      }
+      else {
+        NCCLCHECK(ncclTopoGetNetDev(comm, myInfo->rank, graph, channelId, peerInfo->rank, &netId, &req.netDev, &proxyRank));
+      }
+    }
+    else {
+      NCCLCHECK(ncclTopoGetNetDev(comm, myInfo->rank, graph, channelId, peerInfo->rank, &netId, &req.netDev, &proxyRank));
+    }
+  }
   NCCLCHECK(ncclTopoCheckGdr(comm->topo, myInfo->rank, netId, 1, &req.useGdr));
   send->conn.flags |= req.useGdr ? NCCL_DIRECT_NIC : 0;
   if (!req.useGdr && connIndex == 0) comm->useGdr = 0;
@@ -567,7 +581,9 @@ static ncclResult_t recvFree(struct ncclConnector* recv) {
   return ncclSuccess;
 }
 
-#define NCCL_SHARED_STEPS 16
+/* As RCCL does not support PXN message aggregation, setting NCCL_SHARED_STEPS=8 can save half of the P2P shared memory buffer. */
+#define NCCL_SHARED_STEPS 8
+
 static ncclResult_t sharedNetBuffersInit(struct ncclProxyState* proxyState, int cuda, int tpLocalRank, int type, int sameProcess,
     int nChannels, char** gpuPtr, char** cpuPtr, int* size, ncclIpcDesc *ipcDesc, bool useXdp = false) {
   if (cuda == 0 && sameProcess == 0) {
