@@ -224,6 +224,7 @@ bool ncclSymImplemented(ncclFunc_t coll, int/*ncclDevRedOp_t*/ red, ncclDataType
   }
 }
 
+RCCL_PARAM(SymMaxSize, "SYM_MAXSIZE", 8*1024*1024);
 ncclResult_t ncclSymPickKernel(
     struct ncclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red, ncclDataType_t ty, size_t nElts,
     float* estTimeUs, ncclSymKernelId* kernelId, int* nBlocks, int* nWarps
@@ -260,6 +261,12 @@ ncclResult_t ncclSymPickKernel(
 
   size_t nBytes = nElts*ncclTypeSize(ty);
   size_t nBusBytes = (coll == ncclFuncAllReduce ? 1 : comm->nRanks)*nBytes;
+  size_t MaxSize = rcclParamSymMaxSize();
+  if (MaxSize >= 0) {
+    if (nBusBytes > MaxSize) {
+      kmask = 0; // Disable all symmetric kernels → fall back to asymmetric kernels
+    }
+  }
   // LL kernels use 32-bit ints to track element counts and indices.
   if (nBusBytes >= (size_t(2)<<30)) kmask &= ~kernelMask_LL;
   // Any kernel might use 32-bit int to track unrolled loop chunks (which are going
