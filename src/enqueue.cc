@@ -436,6 +436,7 @@ next:
 
 // Called once per ncclGroup to organize the user submitted tasks in
 // comm->planner so that they can be peeled off into plans.
+RCCL_PARAM(VMMKernelChannels, "VMM_NCHANNELS", 4);
 ncclResult_t ncclPrepareTasks(struct ncclComm* comm, bool* algoNeedConnect, bool* needConnect, ncclSimInfo_t* simInfo) {
   struct ncclKernelPlanner* planner = &comm->planner;
   planner->persistent = ncclCudaGraphValid(planner->capturingGraph);
@@ -471,6 +472,8 @@ ncclResult_t ncclPrepareTasks(struct ncclComm* comm, bool* algoNeedConnect, bool
         task->recvbuff = recvSymPtr;
         task->devFuncId = (int)kernel;
         task->nMaxChannels = nChannels;
+        if(rcclParamVMMKernelChannels() > 0)
+        task->nMaxChannels = rcclParamVMMKernelChannels(); 
         task->nWarps = nWarps;
         ncclIntruQueueEnqueue(&planner->collTaskQueue, task);
         planner->isSymColl = true;

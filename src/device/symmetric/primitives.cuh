@@ -359,6 +359,7 @@ struct ncclSymPrims {
           #pragma unroll
           for (int v=0; v < divUp(sizeof(T),8); v++) {
             tmp[u][v] = *(buf + u * stride + v * ncclSymLLMaxSlots(sizeof(T)));
+            __threadfence();
             // asm volatile("ld.volatile.v4.u32 {%0,%1,%2,%3},[%4];" : "=r"(tmp[u][v].x), "=r"(tmp[u][v].y), "=r"(tmp[u][v].z), "=r"(tmp[u][v].w) : "l"(buf + u*stride + v*ncclSymLLMaxSlots(sizeof(T))));
           }
         }
