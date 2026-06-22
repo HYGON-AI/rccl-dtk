@@ -35,7 +35,7 @@ option(ENABLE_MSCCLPP_EXECUTOR                 "Enable MSCCL++ Executor"        
 option(ENABLE_MSCCLPP_FORMAT_CHECKS            "Enable formatting checks in MSCCL++"           OFF)
 option(ENABLE_NPKIT                            "Enable NPKit"                                  OFF)
 option(ENABLE_IFC                              "Enable indirect function call"                 OFF)
-option(GENERATE_SYM_KERNELS                    "Generate symmetric memory kernels"             OFF)
+option(GENERATE_SYM_KERNELS                    "Generate symmetric memory kernels"             ON)
 option(INSTALL_DEPENDENCIES                    "Force install dependencies"                    OFF)
 option(REPORT_KERNEL_RESOURCE_USE              "Append -Rpass-analysis=kernel to CXX flags"    OFF)
 option(ROCTX                                   "Enable ROCTX"                                  OFF)
@@ -892,6 +892,7 @@ if (GENERATE_SYM_KERNELS)
     message(SEND_ERROR "Error: ${gen_sym_py_error}")
     message(FATAL_ERROR "${CMAKE_SOURCE_DIR}/src/device/symmetric/generate.py failed")
   endif()
+  add_definitions(-DGENERATE_SYM_KERNELS)
 endif()
 
 # Find the generated files in the output directory
