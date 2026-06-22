@@ -139,7 +139,7 @@ ncclResult_t ncclCommSymmetricAllocInternal(struct ncclComm* comm, size_t size, 
   CUmemAllocationProp memprop = {};
   CUmemGenericAllocationHandle memHandle;
   int bit = 0, cnt = 0;
-
+  uint64_t mflag = 0;
   // aligment must be power of 2 as an input
   while (bit < sizeof(size_t) * 8) {
     if (alignment & (1L << bit)) cnt++;
@@ -160,7 +160,9 @@ ncclResult_t ncclCommSymmetricAllocInternal(struct ncclComm* comm, size_t size, 
   CUCHECKGOTO(cuMemGetAllocationGranularity(&granularity, &memprop, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED), ret, fail);
   ALIGN_SIZE(allocSize, granularity);
 
-  CUCHECKGOTO(cuMemCreate(&memHandle, allocSize, &memprop, 0), ret, fail);
+  mflag = hipDeviceMallocUncached;
+  if (comm->useXdp)  mflag = hipDeviceMallocUncachedXdp;
+  CUCHECKGOTO(cuMemCreate(&memHandle, allocSize, &memprop, mflag), ret, fail);
   ALIGN_SIZE(comm->symAllocHead, alignment);
   NCCLCHECKGOTO(ncclIpcSymmetricMap(comm, comm->symAllocHead, allocSize, memHandle, &regSymAddr), ret, fail);
   NCCLCHECKGOTO(ncclNvlsSymmetricMap(comm, comm->symAllocHead, allocSize, regSymAddr), ret, fail);

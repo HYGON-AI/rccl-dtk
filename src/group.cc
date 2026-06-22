@@ -242,7 +242,7 @@ ncclResult_t ncclCommGroupRegisterSymmetric(struct ncclAsyncJob* job_) {
       size_t maxStride = 0;
       for (int r = 0; r < comm->nRanks; ++r)
         if (comm->peerInfo[r].totalGlobalMem > maxStride) maxStride = comm->peerInfo[r].totalGlobalMem;
-      comm->baseStride = maxStride;
+      comm->baseStride = maxStride < (1ULL << 32) ? maxStride : (1ULL << 32); //目前HIP接口计算的maxStride会爆显存，这里尽量少占用显存
     }
     INFO(NCCL_INIT, "rank %d base stride %zuGB total VM %zuGB", comm->rank, comm->baseStride >> 30, (comm->baseStride * comm->localRanks) >> 30);
     NCCLCHECKGOTO(ncclIpcSymmetricInit(comm), ret, fail);
@@ -487,7 +487,7 @@ static ncclResult_t groupLaunch(struct ncclAsyncJob *job_, ncclSimInfo_t* simInf
   CUDACHECKGOTO(cudaGetDevice(&savedDev), ret, fail);
   for (int type = 0; type < ncclGroupTaskTypeNum; ++type) { 
     if (groupCommHeadMain[type]) {
-      nextGroupCommHeadMain = (*groupCommHeadMain)->groupNext[type];
+      nextGroupCommHeadMain = groupCommHeadMain[type]->groupNext[type];
     }
   } 
 
