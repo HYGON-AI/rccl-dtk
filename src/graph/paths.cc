@@ -1111,6 +1111,19 @@ ncclResult_t ncclTopoPathAllNVLink(struct ncclTopoSystem* system, int* allNvLink
   return ncclSuccess;
 }
 
+int ncclTopoPathAnyNVLink(struct ncclTopoSystem* system) {
+  int minPath = PATH_SYS;
+  for (int i=0; i<system->nodes[GPU].count; i++) {
+    struct ncclTopoLinkList* paths = system->nodes[GPU].nodes[i].paths[GPU];
+    if (paths == NULL) continue;
+    for (int j=0; j<system->nodes[GPU].count; j++) {
+      if (i == j) continue;
+      minPath = std::min(minPath, paths[j].type);
+    }
+  }
+  return minPath >= PATH_PIX ? 0 : 1;
+}
+
 // Check whether we are in a split NVLink situation, with two NVLink domains, not
 // connected through NVLink (e.g. QPI).
 ncclResult_t ncclTopoSplitNvLink(struct ncclTopoSystem* system, int* splitNvLink) {
