@@ -335,6 +335,17 @@ ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int refcount, ncclIpcDe
     // cuMem API support
     CUmemGenericAllocationHandle handle;
     NCCLCHECK(ncclCuMemAlloc(ptr, &handle, type, size, useXdp));
+    // 目前hsa_amd_vmem_maph存在问题，会导致缓冲区特定偏移位置残留非零值。这里必须清零，否则会出现脏数据。
+    // 使用非阻塞流并采用宽松捕获模式，这样在主线程执行图捕获时，由代理线程调用时也能保证安全。
+    {
+      cudaStreamCaptureMode capMode = cudaStreamCaptureModeRelaxed;
+      CUCHECK(cudaThreadExchangeStreamCaptureMode(&capMode));
+      cudaStream_t zeroStream;
+      CUCHECK(cudaStreamCreateWithFlags(&zeroStream, cudaStreamNonBlocking));
+      CUCHECK(cudaMemsetAsync(*ptr, 0, size, zeroStream));
+      CUCHECK(cudaStreamSynchronize(zeroStream));
+      CUCHECK(cudaStreamDestroy(zeroStream));
+    }
     if (type == CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
       // Return the native cuMem handle for later Export/Import via UDS
       memcpy(&ipcDesc->cuDesc.data, &handle, sizeof(handle));
