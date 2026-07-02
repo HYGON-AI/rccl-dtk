@@ -31,10 +31,11 @@ namespace {
 
     // each block/channel gets a roughly equal segment of 16 byte packs
     constexpr int EltPerPack = 16/sizeof(T);
-    intptr_t i0 = (bid+0)*alignUp((int)divUp(nElts,bn), EltPerPack);
-    intptr_t i1 = (bid+1)*alignUp((int)divUp(nElts,bn), EltPerPack);
-    i0 = min(i0, nElts);
-    i1 = min(i1, nElts);
+    size_t chunk = alignUp(divUp(nElts, (size_t)bn), (size_t)EltPerPack);
+    intptr_t i0 = (intptr_t)bid * (intptr_t)chunk;
+    intptr_t i1 = (intptr_t)(bid + 1) * (intptr_t)chunk;
+    i0 = std::min(i0, (intptr_t)nElts);
+    i1 = std::min(i1, (intptr_t)nElts);
     src = (T*)src + i0;
     dst = (T*)dst + i0;
 
