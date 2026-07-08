@@ -115,7 +115,7 @@ static int ncclIbRelaxedOrderingEnabled = 0;
 #define NCCL_IB_SL_DEFAULT 0
 #define NCCL_IB_TC_DEFAULT 0
 
-NCCL_PARAM(IbGidIndex, "IB_GID_INDEX", 0);
+NCCL_PARAM(IbGidIndex, "IB_GID_INDEX", -1);
 NCCL_PARAM(IbRoutableFlidIbGidIndex, "IB_ROUTABLE_FLID_GID_INDEX", 1);
 NCCL_PARAM(IbRoceVersionNum, "IB_ROCE_VERSION_NUM", 2);
 NCCL_PARAM(IbTimeout, "IB_TIMEOUT", 20);
