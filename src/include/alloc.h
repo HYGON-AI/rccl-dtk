@@ -180,6 +180,22 @@ ncclResult_t ncclRealloc(T** ptr, size_t oldNelem, size_t nelem) {
   return ncclSuccess;
 }
 
+template <typename T>
+ncclResult_t ncclCudaMemset(T* dst, int value, size_t nelem) {
+  ncclResult_t result = ncclSuccess;
+  cudaStreamCaptureMode mode = cudaStreamCaptureModeRelaxed;
+  CUDACHECK(cudaThreadExchangeStreamCaptureMode(&mode));
+  // Need a side stream so as not to interfere with graph capture.
+  cudaStream_t stream;
+  CUDACHECKGOTO(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), result, finish);
+  CUDACHECKGOTO(cudaMemsetAsync((void*)dst, value, nelem * ncclSizeOfT<T>(), stream), result, finish);
+  CUDACHECKGOTO(cudaStreamSynchronize(stream), result, finish);
+  CUDACHECKGOTO(cudaStreamDestroy(stream), result, finish);
+finish:
+  CUDACHECK(cudaThreadExchangeStreamCaptureMode(&mode));
+  return result;
+}
+
 struct __attribute__ ((aligned(64))) allocationTracker {
   union {
     struct {
@@ -300,6 +316,8 @@ static inline ncclResult_t ncclCuMemAlloc(void **ptr, CUmemGenericAllocationHand
   ncclResult_t result = ncclSuccess;
   size_t mappedSize = 0;
   NCCLCHECK(ncclCuMemAllocNoTrack(ptr, handlep, type, size, &mappedSize, xdp));
+  //目前hsa_amd_vmem_maph存在问题，会导致缓冲区特定偏移位置残留非零值。这里必须清零，否则会出现脏数据。
+  NCCLCHECK(ncclCudaMemset((uint8_t*)*ptr, 0, size));
   int cudaDev;
   CUdevice currentDev;
   CUDACHECK(cudaGetDevice(&cudaDev));
@@ -430,12 +448,7 @@ ncclResult_t ncclCudaCallocDebug(const char *filefunc, int line, T** ptr, size_t
   } else {
 #if defined(HIP_UNCACHED_XDP_MEMORY)
     if (flags == hipDeviceMallocUncachedXdp) {
-      cudaError_t ret = hipExtMallocWithFlags((void**)ptr, nelem*ncclSizeOfT<T>(), flags);
-      if (ret != cudaSuccess) {
-        *ptr = nullptr;
-        WARN("Failed to alloc xdp mem size %ld bytes ret %d, will fall back to using normal uncache memory", nelem*ncclSizeOfT<T>(), ret);
-        return ncclSuccess;
-      }
+      CUDACHECKGOTO(hipExtMallocWithFlags((void**)ptr, nelem*ncclSizeOfT<T>(), flags), result, finish);
       INFO(NCCL_ALLOC, "%s:%d Alloc xdp mem size %ld pointer %p", filefunc, line, nelem*ncclSizeOfT<T>(), *ptr);
     } else {
       CUDACHECKGOTO(hipExtMallocWithFlags((void**)ptr, nelem*ncclSizeOfT<T>(), flags), result, finish);
@@ -515,6 +528,7 @@ finish:
   CUDACHECK(cudaThreadExchangeStreamCaptureMode(&mode));
   return result;
 }
+
 
 template <typename T>
 ncclResult_t ncclCudaMemcpyAsync(T* dst, T* src, size_t nelem, cudaStream_t stream) {
