@@ -54,7 +54,8 @@
              entry->count = info->count;
              entry->datatype = info->datatype;
              entry->op = info->op;
-             entry->rid = info->root; 
+             entry->rid = info->comm->rank;
+             entry->nranks = info->comm->nRanks;
              if (pfn_rccl_prof_api_enter != nullptr) {
                  stat = pfn_rccl_prof_api_enter(operation_id, entry.get());  
                  if (stat != STATUS_SUCCESS) {
