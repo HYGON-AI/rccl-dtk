@@ -11,7 +11,7 @@
 #include "cudawrap.h"
 
 // This env var (NCCL_CUMEM_ENABLE) toggles cuMem API usage
-NCCL_PARAM(CuMemEnable, "CUMEM_ENABLE", -2);
+NCCL_PARAM(CuMemEnable, "CUMEM_ENABLE", 0);
 NCCL_PARAM(CuMemHostEnable, "CUMEM_HOST_ENABLE", -1);
 // Handle type used for cuMemCreate()
 CUmemAllocationHandleType ncclCuMemHandleType = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
