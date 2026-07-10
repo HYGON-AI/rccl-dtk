@@ -24,7 +24,7 @@ struct hip_prof_rccl_entry {
     size_t count;
     uint32_t datatype;
     uint32_t op;
-    int rid; // peer for p2p operations
+    int rid; // rank id
     // Computed later
     int algorithm;
     int protocol;
@@ -53,6 +53,7 @@ struct hip_prof_rccl_entry {
     uint32_t ret_stat;
     const char* kernel_name;
     double BW_GBps; //(nBytes/1.0E9)/[(end_ns-begin_ns)/1.0E9]
+    int nranks;
 };
 
 typedef enum {
