@@ -570,7 +570,6 @@ struct ncclDevComm {
   int node;
   int nNodes;
   int funcindex;
-  uint64_t nBytes;
   int buffSizes[NCCL_NUM_PROTOCOLS];
   int p2pChunkSize;
   int isAllNvlink;
@@ -635,6 +634,7 @@ struct alignas(16) ncclDevKernelArgs {
   enum ncclDevWorkStorageType workStorageType;
   uint32_t workMask;
   void* workBuf;
+  int funcIndex;
   // A channel's first batch is at `blockIdx.x`. Use `nextJump` to follow rest of list.
   // struct ncclDevWorkBatch batches[];
 };

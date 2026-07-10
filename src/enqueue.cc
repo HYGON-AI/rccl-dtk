@@ -1843,6 +1843,9 @@ ncclResult_t ncclLaunchKernel(struct ncclComm* comm, struct ncclKernelPlan* plan
   dim3 block = {(unsigned)plan->threadPerBlock, 1, 1};
   int smem = rcclShmemDynamicSize(comm->cudaArch, comm->WarpSize);
   cudaStream_t launchStream = planner->streams->stream;
+  auto rank = static_cast<uint32_t>(comm->rank);
+  auto funcIndex = static_cast<uint32_t>(plan->kernelArgs->comm->funcindex);
+  plan->kernelArgs->funcIndex = (rank > 0xFFFFU || funcIndex > 0xFFFFU) ? funcIndex : (((rank & 0xFFFFU) << 16) | (funcIndex & 0xFFFFU));
   void* extra[] = {plan->kernelArgs, &plan->kernelArgsSize};
 
   if (comm->useSMFree && (plan->syncCondition->proxyOpCount.load(std::memory_order_relaxed) > 0 || !ncclIntruQueueEmpty(&plan->pscTaskQueue))) { 
@@ -2769,7 +2772,6 @@ static int getP2pPerPeerChannels(struct ncclComm* comm, struct ncclInfo* info, n
 // thus don't need a task.
 static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
   struct ncclKernelPlanner *planner = &comm->planner;
-  comm->devComm->nBytes = info->count*ncclTypeSize(info->datatype);
 
   if (info->coll == ncclFuncSend || info->coll == ncclFuncRecv) {
     int peer = info->root;
