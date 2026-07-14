@@ -1373,14 +1373,15 @@ set_property(TARGET rccl PROPERTY RULE_LAUNCH_LINK "${CMAKE_COMMAND} -E time")
 
 
 ## Setup librccl.so version with git commit ID
-execute_process(COMMAND git log --pretty=format:'%h' -n 1
+execute_process(COMMAND git log --pretty=format:%h -n 1
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                 OUTPUT_VARIABLE GIT_REV
                 ERROR_QUIET)
 string(STRIP "${GIT_REV}" GIT_REV)
-string(SUBSTRING "${GIT_REV}" 1 7 GIT_REV)
-
-if("${GIT_REV}" STREQUAL "")
+string(LENGTH "${GIT_REV}" GIT_REV_LEN)
+if(GIT_REV_LEN GREATER_EQUAL 7)
+  string(SUBSTRING "${GIT_REV}" 0 7 GIT_REV)
+else()
   set(GIT_REV "unknown")
 endif()
 
