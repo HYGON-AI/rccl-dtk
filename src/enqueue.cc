@@ -329,6 +329,8 @@ static void finishPlan(struct ncclComm* comm, struct ncclKernelPlan* plan) {
     plan->syncCondition = new psmSyncCondition;
     plan->syncCondition->proxyReadyEvent = 0;
     plan->syncCondition->proxyOpCount = proxyOpCnt;
+    plan->syncCondition->initialProxyOpCount = proxyOpCnt;
+    plan->syncCondition->persistent = plan->persistent;
   }
 }
 
@@ -1541,6 +1543,10 @@ static ncclResult_t hostStreamPlanTask(struct ncclComm* comm, struct ncclKernelP
   NCCLCHECK(ncclProfilerStartGroupEvent(plan));
   NCCLCHECK(ncclProfilerStartTaskEvents(plan));
   if (ncclIntruQueueHead(&plan->proxyOpQueue)) {
+    if (comm->useSMFree && plan->persistent && plan->syncCondition && plan->syncCondition->initialProxyOpCount > 0) {
+      plan->syncCondition->proxyReadyEvent.store(0, std::memory_order_relaxed);
+      plan->syncCondition->proxyOpCount.store(plan->syncCondition->initialProxyOpCount, std::memory_order_relaxed);
+    }
     NCCLCHECK(uploadProxyOps(comm, plan));
     NCCLCHECK(ncclProxyStart(comm));
   }
@@ -1615,6 +1621,10 @@ static ncclResult_t reclaimPlan(struct ncclComm* comm, struct ncclCommCallback* 
       struct psmSelfCopy* next = node->next;
       ncclMemoryPoolFree(&comm->memPool_ncclPsmSelfCopy, node);
       node = next;
+    }
+    if (plan->syncCondition && (plan->persistent || !plan->isProxySyncCbEnq)) {
+      delete plan->syncCondition;
+      plan->syncCondition = nullptr;
     }
   }
   // Free plan struct
@@ -1776,12 +1786,24 @@ ncclResult_t ncclLaunchPrepare(struct ncclComm* comm) {
       // We have to launch host tasks to push proxy args. We are careful to only
       // do this if necessary since host tasks impose a high performance cost in CUDA.
       bool acquired = false;
+      bool keepCaptureDeps = false;
       cudaStream_t hostStream;
       for (struct ncclKernelPlan* plan=planHead; plan != nullptr; plan = plan->next) {
         if (plan->hasProxyOps) {
+          bool planKeepCaptureDeps = comm->useSMFree && persistent && ncclIntruQueueHead(&plan->p2pTaskQueue) != nullptr;
+          if (acquired && keepCaptureDeps != planKeepCaptureDeps) {
+            NCCLCHECKGOTO(ncclStreamWaitStream(launchStream, hostStream, comm->sharedRes->scratchEvent), result, failure);
+            NCCLCHECKGOTO(ncclStrongStreamRelease(planner->capturingGraph, &comm->sharedRes->hostStream, /*concurrent=*/false), result, failure);
+            acquired = false;
+          }
           if (!acquired) {
             acquired = true;
-            NCCLCHECKGOTO(ncclStrongStreamAcquire(planner->capturingGraph, &comm->sharedRes->hostStream, /*concurrent=*/false, &hostStream), result, failure);
+            keepCaptureDeps = planKeepCaptureDeps;
+            if (keepCaptureDeps) {
+              NCCLCHECKGOTO(ncclStrongStreamAcquireKeepCaptureDeps(planner->capturingGraph, &comm->sharedRes->hostStream, /*concurrent=*/false, &hostStream), result, failure);
+            } else {
+              NCCLCHECKGOTO(ncclStrongStreamAcquire(planner->capturingGraph, &comm->sharedRes->hostStream, /*concurrent=*/false, &hostStream), result, failure);
+            }
           }
           plan->isHostCbEnq = true;
           CUDACHECKGOTO(cudaLaunchHostFunc(hostStream, hostStreamPlanCallback, plan), result, failure);
@@ -1826,7 +1848,7 @@ static void hostProxySyncCallback(void *args) {
     // Wait for the proxy ops to be finished.
     sched_yield();
   }
-  delete syncCond; // Free the sync condition
+  if (!syncCond->persistent) delete syncCond;
   return ;
 }
 
@@ -1848,13 +1870,16 @@ ncclResult_t ncclLaunchKernel(struct ncclComm* comm, struct ncclKernelPlan* plan
   plan->kernelArgs->funcIndex = (rank > 0xFFFFU || funcIndex > 0xFFFFU) ? funcIndex : (((rank & 0xFFFFU) << 16) | (funcIndex & 0xFFFFU));
   void* extra[] = {plan->kernelArgs, &plan->kernelArgsSize};
 
-  if (comm->useSMFree && (plan->syncCondition->proxyOpCount.load(std::memory_order_relaxed) > 0 || !ncclIntruQueueEmpty(&plan->pscTaskQueue))) { 
+  if (comm->useSMFree && (plan->syncCondition->proxyOpCount.load(std::memory_order_relaxed) > 0 || !ncclIntruQueueEmpty(&plan->pscTaskQueue))) {
     struct psmSelfCopy* node = ncclIntruQueueHead(&plan->pscTaskQueue);
     while (node) {
       CUDACHECK(cudaMemcpyAsync(node->dst, node->src, node->bytes, cudaMemcpyDeviceToDevice, launchStream));
       node = node->next;
     }
-    if (plan->syncCondition->proxyOpCount.load(std::memory_order_relaxed) > 0) CUDACHECK(cudaLaunchHostFunc(launchStream, hostProxySyncCallback, plan->syncCondition));
+    if (plan->syncCondition->proxyOpCount.load(std::memory_order_relaxed) > 0) {
+      CUDACHECK(cudaLaunchHostFunc(launchStream, hostProxySyncCallback, plan->syncCondition));
+      plan->isProxySyncCbEnq = true;
+    }
     if (plan->collOpCount == 0) return ncclSuccess;
   }
 
