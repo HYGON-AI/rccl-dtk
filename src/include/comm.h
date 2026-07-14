@@ -209,6 +209,8 @@ struct psmSelfCopy {
 struct psmSyncCondition {
   std::atomic<int> proxyOpCount;    // The total number of proxyOp's that have been enqueued in this plan.
   std::atomic<int> proxyReadyEvent; // Event that proxy thread queries for starting progresssing.
+  int initialProxyOpCount;          // Saved initial proxyOpCount for persistent graph replay reset.
+  bool persistent;
 };
 
 struct ncclTaskColl {
@@ -278,6 +280,7 @@ struct ncclKernelPlan {
 
   bool persistent; // aka captured in a graph
   bool isHostCbEnq;
+  bool isProxySyncCbEnq; // SM Free: whether hostProxySyncCallback was actually enqueued
   bool isSymColl;
   enum ncclDevWorkStorageType workStorageType;
   bool kernelSpecialized;
