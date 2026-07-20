@@ -708,22 +708,12 @@ ncclResult_t ncclTopoTuneModel(struct ncclComm* comm, int minCompCap, int maxCom
               if (p == NCCL_PROTO_SIMPLE) lat = rcclTuningModel[comm->topo->tuning].hwLat[hw[a]][NCCL_ALGO_TREE][p]; // Add some chunk latency, waiting for proper chunk modeling
               comm->latencies[coll][a][p] += nsteps*lat;
             }
-            if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936")) {
-              if (p == NCCL_PROTO_SIMPLE){
-                if (nNodes == 1) comm->latencies[coll][a][p] *= 0.62;
-                else comm->latencies[coll][a][p] *= 0.74;
-              }
-            }
           } else {
             // Inter-node rings still have to launch nsteps * net overhead.
             float netOverhead = 0.0;
             if (nNodes > 1) {
               netOverhead = getNetOverhead(comm);
               if (p == NCCL_PROTO_SIMPLE) netOverhead *= 3;
-              else if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx93") && (coll == ncclFuncAllGather || coll == ncclFuncReduceScatter)){
-                intraLat *= 2;
-                interLat *= 2;
-              }
             }
             intraLat = std::max(intraLat, netOverhead);
             int nInterSteps = nNodes == 1 ? 0 : coll == ncclFuncAllReduce ? 2*(nNodes-1) : nNodes-1;
