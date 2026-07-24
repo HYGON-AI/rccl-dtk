@@ -88,10 +88,6 @@ ncclResult_t ncclStrongStreamAcquire(
   struct ncclCudaGraph graph, struct ncclStrongStream* ss, bool concurrent, cudaStream_t* workStream
 );
 
-ncclResult_t ncclStrongStreamAcquireKeepCaptureDeps(
-  struct ncclCudaGraph graph, struct ncclStrongStream* ss, bool concurrent, cudaStream_t* workStream
-);
-
 // Get the workStream for an already acquired strong stream.
 // `concurrent` indicates if other threads may be using the strong stream.
 ncclResult_t ncclStrongStreamAcquiredWorkStream(
