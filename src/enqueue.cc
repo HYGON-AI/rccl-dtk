@@ -1786,24 +1786,12 @@ ncclResult_t ncclLaunchPrepare(struct ncclComm* comm) {
       // We have to launch host tasks to push proxy args. We are careful to only
       // do this if necessary since host tasks impose a high performance cost in CUDA.
       bool acquired = false;
-      bool keepCaptureDeps = false;
       cudaStream_t hostStream;
       for (struct ncclKernelPlan* plan=planHead; plan != nullptr; plan = plan->next) {
         if (plan->hasProxyOps) {
-          bool planKeepCaptureDeps = comm->useSMFree && persistent && ncclIntruQueueHead(&plan->p2pTaskQueue) != nullptr;
-          if (acquired && keepCaptureDeps != planKeepCaptureDeps) {
-            NCCLCHECKGOTO(ncclStreamWaitStream(launchStream, hostStream, comm->sharedRes->scratchEvent), result, failure);
-            NCCLCHECKGOTO(ncclStrongStreamRelease(planner->capturingGraph, &comm->sharedRes->hostStream, /*concurrent=*/false), result, failure);
-            acquired = false;
-          }
           if (!acquired) {
             acquired = true;
-            keepCaptureDeps = planKeepCaptureDeps;
-            if (keepCaptureDeps) {
-              NCCLCHECKGOTO(ncclStrongStreamAcquireKeepCaptureDeps(planner->capturingGraph, &comm->sharedRes->hostStream, /*concurrent=*/false, &hostStream), result, failure);
-            } else {
-              NCCLCHECKGOTO(ncclStrongStreamAcquire(planner->capturingGraph, &comm->sharedRes->hostStream, /*concurrent=*/false, &hostStream), result, failure);
-            }
+            NCCLCHECKGOTO(ncclStrongStreamAcquire(planner->capturingGraph, &comm->sharedRes->hostStream, /*concurrent=*/false, &hostStream), result, failure);
           }
           plan->isHostCbEnq = true;
           CUDACHECKGOTO(cudaLaunchHostFunc(hostStream, hostStreamPlanCallback, plan), result, failure);
