@@ -473,9 +473,7 @@ ncclResult_t ncclPrepareTasks(struct ncclComm* comm, bool* algoNeedConnect, bool
         task->sendbuff = sendSymPtr;
         task->recvbuff = recvSymPtr;
         task->devFuncId = (int)kernel;
-        task->nMaxChannels = nChannels;
-        if(rcclParamVMMKernelChannels() > 0)
-        task->nMaxChannels = rcclParamVMMKernelChannels(); 
+        task->nMaxChannels = rcclParamVMMKernelChannels() > 0 ? rcclParamVMMKernelChannels() : nChannels;
         task->nWarps = nWarps;
         ncclIntruQueueEnqueue(&planner->collTaskQueue, task);
         planner->isSymColl = true;
@@ -1851,8 +1849,10 @@ ncclResult_t ncclLaunchKernel(struct ncclComm* comm, struct ncclKernelPlan* plan
   int smem = rcclShmemDynamicSize(comm->cudaArch, comm->WarpSize);
   cudaStream_t launchStream = planner->streams->stream;
   auto rank = static_cast<uint32_t>(comm->rank);
-  auto funcIndex = static_cast<uint32_t>(plan->kernelArgs->comm->funcindex);
-  plan->kernelArgs->funcIndex = (rank > 0xFFFFU || funcIndex > 0xFFFFU) ? funcIndex : (((rank & 0xFFFFU) << 16) | (funcIndex & 0xFFFFU));
+  if (!planner->isSymColl) {
+    auto funcIndex = static_cast<uint32_t>(plan->kernelArgs->comm->funcindex);
+    plan->kernelArgs->funcIndex = (rank > 0xFFFFU || funcIndex > 0xFFFFU) ? funcIndex : (((rank & 0xFFFFU) << 16) | (funcIndex & 0xFFFFU));
+  }
   void* extra[] = {plan->kernelArgs, &plan->kernelArgsSize};
 
   if (comm->useSMFree && (plan->syncCondition->proxyOpCount.load(std::memory_order_relaxed) > 0 || !ncclIntruQueueEmpty(&plan->pscTaskQueue))) {
