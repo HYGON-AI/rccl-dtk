@@ -127,7 +127,7 @@ static ncclResult_t addProxyOpIfNeeded(struct ncclComm* comm, struct ncclKernelP
 static void addWorkBatchToPlan(
     struct ncclComm* comm, struct ncclKernelPlan* plan, int channelId,
     enum ncclDevWorkType workType, int devFuncId, uint32_t workOffset,
-    int p2pRound = -1
+    int p2pRound = -1, bool batchP2P = false
   ) {
   ncclKernelPlanner::WipPlan::Channel* chan = &comm->planner.wipPlan.channels[channelId];
   size_t workSize = ncclDevWorkSize(workType);
@@ -145,7 +145,7 @@ static void addWorkBatchToPlan(
     // batch further down.
     newBatch |= NCCL_MAX_DEV_WORK_BATCH_BYTES < chan->wipBatch.workBytes + workSize;
     if (workType == ncclDevWorkTypeP2p) {
-      newBatch |= chan->wipBatch.nP2ps == NCCL_MAX_DEV_WORK_P2P_PER_BATCH;
+      newBatch |= (comm->nNodes >= 2 && batchP2P && comm->nNodes <= 32)? (chan->wipBatch.nP2ps == NCCL_MAX_DEV_WORK_P2P_PER_BATCH) : (chan->wipBatch.nP2ps == 1);
       for (int i=0; i < chan->wipBatch.nP2ps; i++) {
         newBatch |= p2pRound == chan->wipBatch.p2pRounds[i];
       }
@@ -863,6 +863,7 @@ static ncclResult_t scheduleCollTasksToPlan(
 NCCL_PARAM(P2pLLThreshold, "P2P_LL_THRESHOLD", 8192);
 RCCL_PARAM(P2pNetThreshold, "P2P_NET_THRESHOLD", 131072);
 NCCL_PARAM(ChunkSize, "CHUNK_SIZE", 0);
+RCCL_PARAM(P2pBatchEnable, "P2P_BATCH_ENABLE", 1);
 
 // Put p2p op in plan assuming there is sizeof(ncclDevWorkBatch) in batch budget
 // and sizeof(ncclDevWorkP2p) in work budget. "sendRank" and "recvRank" must
@@ -884,7 +885,8 @@ static ncclResult_t addP2pToPlan(
   bool protoLL[2] = {!selfSend, !selfSend};
   bool network[2] = {false, false};
   bool proxySameProcess[2] = {true, true};
-  uint8_t base = ncclP2pChannelBaseForRound(comm, p2pRound);
+  bool batchP2P =  rcclParamP2pBatchEnable();
+  uint8_t base = ncclP2pChannelBaseForRound(comm, p2pRound, batchP2P);
 
   if (comm->p2pNet) {
     for (int dir = 0; dir <= 1; dir++) {
@@ -1045,7 +1047,7 @@ static ncclResult_t addP2pToPlan(
     plan->channelMask.masks[channelId/64] |= uint64_t(1)<<(channelId%64);
     // Add batch first.
     int funcIdx = ncclDevFuncId_P2p();
-    addWorkBatchToPlan(comm, plan, channelId, ncclDevWorkTypeP2p, funcIdx, workOffset, p2pRound);
+    addWorkBatchToPlan(comm, plan, channelId, ncclDevWorkTypeP2p, funcIdx, workOffset, p2pRound, batchP2P);
     if (funcIdx < 0) {
       WARN("%s: unsupported collective. Please ensure the collective has been enabled in build.", __func__);
       return ncclInvalidUsage;
@@ -2263,6 +2265,23 @@ static int getP2pPerPeerChannels(struct ncclComm* comm, struct ncclInfo* info, n
   return (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") ? PerPeerChannelsConfigGfx936 : PerPeerChannelsConfigGfx938)[index][arrayIndex];
 }
 
+static void getSuperNodeP2pPerPeerChannels(struct ncclComm* comm) {
+  int targetChannels;
+  if (comm->nNodes == 1) {
+    targetChannels = comm->nRanks < 4 ? 16 : 8;
+  } else if (comm->nRanks < 8) {
+    targetChannels = 16;
+  } else if (comm->nRanks <= 12) {
+    targetChannels = 4;
+  } else if (comm->nRanks <= 24) {
+    targetChannels = 2;
+  } else {
+    targetChannels = 1;
+  } 
+  comm->p2pnChannelsPerPeer = std::min(targetChannels, comm->p2pnChannels);
+  comm->devComm->p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
+}
+
 // Converts `info` to a task and adds it to `comm->planner`. The exception is with
 // single rank communicators, collectives are issued as `ncclMemcpyAsync`s and
 // thus don't need a task.
@@ -2330,26 +2349,43 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
               break;
           }
         } else {
-          switch (p2p->parentP2pType) {
-            case P2pAllToAll:
-            case P2pGather:
-            case P2pScatter:
-              updateChannels(getP2pPerPeerChannels(comm, info, p2p->parentP2pType));
-              break;
-            case P2pAllToAllv:
-              comm->nNodes == 1 ? updateChannels(4) : maybeRestore();
-              break;
-            case P2pInvalid:
-              comm->nNodes > 1 ? updateChannels(16) : maybeRestore();
-              break;
-            default:
-              maybeRestore();
-              break;
-          }
-          if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && p2p->bytes >= _128MB && comm->nNodes == 1 && p2p->parentP2pType == P2pAllToAll && comm->oriP2pnChannels > 16) {
-            comm->p2pnChannels = 16;
-          } else if (comm->p2pnChannels != comm->oriP2pnChannels){
-            comm->p2pnChannels = comm->oriP2pnChannels;
+          if (comm->isSuperNode == true) {
+             switch (p2p->parentP2pType) {
+              case P2pAllToAll:
+              case P2pAllToAllv:
+              case P2pGather:
+              case P2pScatter:
+                getSuperNodeP2pPerPeerChannels(comm);
+                break;
+              case P2pInvalid:
+                comm->nNodes > 1 ? updateChannels(16) : maybeRestore();
+                break;
+              default:
+                maybeRestore();
+                break;
+            }
+          } else {
+            switch (p2p->parentP2pType) {
+              case P2pAllToAll:
+              case P2pGather:
+              case P2pScatter:
+                updateChannels(getP2pPerPeerChannels(comm, info, p2p->parentP2pType));
+                break;
+              case P2pAllToAllv:
+                comm->nNodes == 1 ? updateChannels(4) : maybeRestore();
+                break;
+              case P2pInvalid:
+                comm->nNodes > 1 ? updateChannels(16) : maybeRestore();
+                break;
+              default:
+                maybeRestore();
+                break;
+            }
+            if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && p2p->bytes >= _128MB && comm->nNodes == 1 && p2p->parentP2pType == P2pAllToAll && comm->oriP2pnChannels > 16) {
+              comm->p2pnChannels = 16;
+            } else if (comm->p2pnChannels != comm->oriP2pnChannels){
+              comm->p2pnChannels = comm->oriP2pnChannels;
+            }
           }
         }
       }
@@ -2365,7 +2401,7 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
                                       : comm->p2pSchedule[round].recvRank)) {
           round += 1;
         }
-        uint8_t base = ncclP2pChannelBaseForRound(comm, round);
+        uint8_t base = ncclP2pChannelBaseForRound(comm, round, rcclParamP2pBatchEnable());
         for (int c=0; c < comm->p2pnChannelsPerPeer; c++) {
           int channelId = ncclP2pChannelForPart(comm->p2pnChannels, base, c, comm->p2pnChannelsPerPeer, comm->nNodes);
           if (isSendNotRecv) {
