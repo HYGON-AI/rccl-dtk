@@ -641,6 +641,7 @@ ncclResult_t ncclTopoTuneModel(struct ncclComm* comm, int minCompCap, int maxCom
           busBw *= rcclTuningModel[comm->topo->tuning].bwRatio[1][a][p];
         if (a == NCCL_ALGO_RING && p == NCCL_PROTO_LL && (coll == ncclFuncBroadcast || coll == ncclFuncReduce) && (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx942") || IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx950")) && comm->topo->nodes[GPU].count == comm->topo->nRanks) { busBw = busBw * 1.65; }
         if (a == NCCL_ALGO_RING && p == NCCL_PROTO_LL && (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx926") || IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx928")) && comm->nNodes == 1) { busBw = busBw * 4.3; }
+        if (a == NCCL_ALGO_TREE && IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx93") && nNodes > 1 && ppn == 2) busBw *= 1.65;
 #else
         if (a == NCCL_ALGO_RING && p == NCCL_PROTO_LL) { busBw = std::min(llMaxBw, busBw * .5); }
         if (a == NCCL_ALGO_RING && p == NCCL_PROTO_LL128) busBw = std::min(busBw * (0.92 /*120.0/128.0*/), graphs[a]->nChannels*perChMaxRingLL128Bw);
