@@ -2423,9 +2423,8 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   NCCLCHECKGOTO(ncclTopoComputeP2pChannels(comm), ret, fail);
   comm->CollSimpleChannels = comm->nChannels;
   // set Simple nChannels to rcclParamCollSimpleChannels() when gcn=gfx936
-  if(IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936")){
-    int CollSimpleChannels = comm->isSuperNode ? 32 : 16;  // supernode system set to 32 channels for CollSimple, otherwise set to 16
-    if(rcclParamCollSimpleChannels() != -2) CollSimpleChannels = rcclParamCollSimpleChannels();
+  if(IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") || (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && comm->isSuperNode)){
+    int CollSimpleChannels = rcclParamCollSimpleChannels() != -2 ? rcclParamCollSimpleChannels() : (comm->nNodes == 1 && comm->nRanks == 4) ? 32 : 16;
     if(CollSimpleChannels <= comm->nChannels && CollSimpleChannels > 0) comm->CollSimpleChannels = CollSimpleChannels;
   }
   /* until now, all info of comm should be known. We can initialize shared resources and
