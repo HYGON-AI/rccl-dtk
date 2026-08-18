@@ -639,9 +639,11 @@ __device__ __forceinline__ void reduceCopy(
   #endif
     // Check that all pointers are BigPackSize aligned.
     bool aligned = true;
+#if !defined(__gfx936__) && !defined(__gfx938__)
     if (lane < nSrcs) aligned &= 0 == cvta_to_global(srcPtrFn(lane)) % (BigPackSize + !BigPackSize);
     if (lane < nDsts) aligned &= 0 == cvta_to_global(dstPtrFn(lane)) % (BigPackSize + !BigPackSize);
     aligned = !(__any(!aligned));
+#endif
     if (aligned) {
 #if defined(__gfx90a__)
       if constexpr (useAcc)
