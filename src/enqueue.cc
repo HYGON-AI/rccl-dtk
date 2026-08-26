@@ -2832,7 +2832,7 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
             updateChannels(comm->oriP2pnChannelsPerPeer);
           }
         };
-        if (comm->isSuperNode == true) {
+        if (comm->isSuperNode) {
           switch (p2p->parentP2pType) {
             case P2pAllToAll:
             case P2pAllToAllv:
@@ -2850,6 +2850,12 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
         } else {
           switch (p2p->parentP2pType) {
             case P2pAllToAll:
+              if(IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && comm->nNodes > 1) {
+                updateChannels(comm->nRanks <= 4 ? 4 : 2);
+              } else {
+                updateChannels(getP2pPerPeerChannels(comm, info, p2p->parentP2pType));
+              }
+              break;
             case P2pScatter:
               updateChannels(getP2pPerPeerChannels(comm, info, p2p->parentP2pType));
               break;
@@ -2864,9 +2870,9 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
               if (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936")) {
                 updateChannels(comm->nNodes == 1
                                ? (comm->nRanks < 4 ? 16 : (comm->nRanks < 8 ? 8 : 4))
-                               : (comm->nRanks <= 2 ? 4 : 2));
+                               : (comm->nRanks <= 4 ? 4 : 2));
               } else {
-                comm->nNodes == 1 ? updateChannels(4) : maybeRestore();
+                comm->nNodes == 1 ? updateChannels(4) : updateChannels(comm->nRanks <= 4 ? 4 : 2);
               }  
               break;
             case P2pInvalid:
