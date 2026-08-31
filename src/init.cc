@@ -663,23 +663,25 @@ static void ncclLogDetectTopoInfo(const char* tag, int rank, int cudaDev, const 
 static ncclResult_t ncclAutoDetectTopo(struct ncclComm* comm) {
   // 1.判断是否需要探测
   // 只有未强制探测（0表示未开启） 且 （未指定topofile 或 /tmp/topo.xml文件不存在 或 非mlnx网卡）
-  snprintf(comm->detectTopoPath, sizeof(comm->detectTopoPath), "%s", "/tmp/topo.xml");
+  bool skipDetect = false;
+  const char* topoFileName = ncclGetEnv("RCCL_TOPO_FILE_NAME");
+  snprintf(comm->detectTopoPath, sizeof(comm->detectTopoPath), "%s", (topoFileName && *topoFileName) ? topoFileName : "/tmp/topo.xml");
   if(rcclParamForceDetectTopo() == 0) {
     const char* xmlTopoFile = ncclGetEnv("NCCL_TOPO_FILE");
     ncclNetProperties_t props;
     NCCLCHECK(comm->ncclNet->getProperties(0, &props));
     if(xmlTopoFile != NULL || access(comm->detectTopoPath, F_OK) == 0 || strncmp(props.name, "mlx5", 4) != 0) {
+      skipDetect = true;
       INFO(NCCL_INIT, "Skipping topology detection, NCCL_TOPO_FILE(%s), %s(%s), NICName(%s).", xmlTopoFile ? xmlTopoFile: "not set", 
         comm->detectTopoPath, access(comm->detectTopoPath, F_OK) == 0 ? "exists" : "does not exists", props.name);
-      return ncclSuccess;
     }
   }
-  INFO(NCCL_INIT, "Detecting topology start.");
+  if (!skipDetect) INFO(NCCL_INIT, "Detecting topology start.");
 
   //2.强制NUMA指定
   topoInfo topo;
   memset(&topo, 0, sizeof(topo));
-  if(comm->cudaDev == 0) {
+  if(!skipDetect && comm->cudaDev == 0) {
     std::map<int, std::vector<int>> gpuToBestNicMap;
     std::map<int, std::vector<int>> ncclSysGpuToNic;
     // 获取系统上报的GPU与NIC的匹配关系
