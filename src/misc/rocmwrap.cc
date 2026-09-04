@@ -459,6 +459,21 @@ static hsa_status_t iterateAgentCallback(hsa_agent_t agent, void* data)
   if (hsaPciDomainId == rankDomainId && hsaBus == rankBus && hsaDevice == rankDevice && hsaFunction == rankFunction) {
     agentInfo->hsaAgent = agent;
     agentInfo->validHsaAgent = true;
+    
+#ifdef SOFT_TIO
+    hsa_device_type_t deviceType;
+    status = pfn_hsa_agent_get_info(agent, static_cast<hsa_agent_info_t>(HSA_AGENT_INFO_DEVICE), &deviceType);
+    uint16_t ccMode = 0;
+    if (status == HSA_STATUS_SUCCESS && deviceType == HSA_DEVICE_TYPE_GPU) {
+      status = pfn_hsa_agent_get_info(agent, static_cast<hsa_agent_info_t>(HAS_AMD_AGENT_INFO_CC_MODE), &ccMode);
+      if (status != HSA_STATUS_SUCCESS) {
+        INFO(NCCL_INIT, "CC_MODE query not supported (status %d), defaulting to 0", status);
+        ccMode = 0;
+      }
+      INFO(NCCL_INIT, "CC_MODE agent: ccMode=%u", ccMode);
+    }
+    agentInfo->ccMode = ccMode;
+#endif
     INFO(NCCL_INIT, "rank:%d get match hsa dev domain:0x%x bdf:0x%x rank busId:0x%ld",
       agentInfo->rank, hsaPciDomainId, hsaPciBdfId, agentInfo->busId);
   }

@@ -1622,10 +1622,12 @@ NCCL_PARAM(MNNVLEnable, "MNNVL_ENABLE", 2);
 
 RCCL_PARAM(NetGdrWriteUseXdpEnable, "GDR_WRITE_USE_XDP_ENABLE", 1);
 
+RCCL_PARAM(DisableCcMode, "DISABLE_CCMODE", 0);
+
 /* 获取本地rank的hsa agent */
 ncclResult_t getLocalHsaAgent(struct ncclComm* comm)
 {
-  struct hsaAgentInfo agentInfo;
+  struct hsaAgentInfo agentInfo = {};
 
   if (comm->validHsaAgent) {
     return ncclSuccess;
@@ -1637,6 +1639,12 @@ ncclResult_t getLocalHsaAgent(struct ncclComm* comm)
   if (agentInfo.validHsaAgent) {
     comm->validHsaAgent = true;
     comm->hsaAgent = agentInfo.hsaAgent;
+#ifdef SOFT_TIO
+    comm->ccMode = 0;
+    if(rcclParamDisableCcMode() != 1) {
+      comm->ccMode = agentInfo.ccMode;
+    }
+#endif
     return ncclSuccess;
   } else {
     comm->validHsaAgent = false;
