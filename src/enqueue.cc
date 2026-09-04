@@ -2786,10 +2786,22 @@ static int getP2pPerPeerChannels(struct ncclComm* comm, struct ncclInfo* info, n
   return (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") ? PerPeerChannelsConfigGfx936 : PerPeerChannelsConfigGfx938)[index][arrayIndex];
 }
 
-static void getSuperNodeP2pPerPeerChannels(struct ncclComm* comm) {
+static void getSuperNodeP2pPerPeerChannels(struct ncclComm* comm, ncclP2pInfo_t parentP2p) {
   int targetChannels;
   if (comm->nNodes == 1) {
     targetChannels = comm->nRanks < 4 ? 16 : 8;
+  } else if (parentP2p == P2pAllToAllv) {
+    if (comm->nRanks <= 4) {
+      targetChannels = 16;
+    } else if (comm->nRanks <= 8) {
+      targetChannels = 8;
+    } else if (comm->nRanks <= 16) {
+      targetChannels = 4;
+    } else if (comm->nRanks <= 28) {
+      targetChannels = 2;
+    } else {
+      targetChannels = 1;
+    }
   } else if (comm->nRanks < 8) {
     targetChannels = 16;
   } else if (comm->nRanks <= 12) {
@@ -2798,7 +2810,7 @@ static void getSuperNodeP2pPerPeerChannels(struct ncclComm* comm) {
     targetChannels = 2;
   } else {
     targetChannels = 1;
-  } 
+  }
   comm->p2pnChannelsPerPeer = std::min(targetChannels, comm->p2pnChannels);
 #ifdef SOFT_TIO
   if (comm->ccMode == CCMODE_SOFT_ENC_TRANS) {
@@ -2858,7 +2870,7 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
             case P2pAllToAllv:
             case P2pGather:
             case P2pScatter:
-              getSuperNodeP2pPerPeerChannels(comm);
+              getSuperNodeP2pPerPeerChannels(comm, p2p->parentP2pType);
               break;
             case P2pInvalid:
               comm->nNodes > 1 ? updateChannels(16) : maybeRestore();
