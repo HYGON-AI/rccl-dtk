@@ -510,6 +510,9 @@ struct ncclComm {
 
   bool validHsaAgent;
   hsa_agent_t hsaAgent;
+#ifdef SOFT_TIO
+  uint16_t ccMode;
+#endif
   bool useXdp;
   int linkTopoType;
   bool isSuperNode;  // if true, all peers have uniqueId in sys topo, which means it is a supernode system.

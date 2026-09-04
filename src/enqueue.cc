@@ -522,7 +522,16 @@ ncclResult_t ncclPrepareTasks(struct ncclComm* comm, bool* algoNeedConnect, bool
         agg.devFuncId = ncclDevFuncId(agg.func, agg.opDev.op, agg.datatype, agg.algorithm, agg.protocol, 1, agg.pipeline);
       else
         agg.devFuncId = ncclDevFuncId(agg.func, agg.opDev.op, agg.datatype, agg.algorithm, agg.protocol, 0, agg.pipeline);
-      comm->devComm->funcindex = (((agg.func*ncclNumDevRedOps + agg.opDev.op) * ncclNumTypes + agg.datatype) * (NCCL_NUM_ALGORITHMS-1) + agg.algorithm) * NCCL_NUM_PROTOCOLS + agg.protocol;
+      {
+        int funcIndex = (((agg.func*ncclNumDevRedOps + agg.opDev.op) * ncclNumTypes + agg.datatype) * (NCCL_NUM_ALGORITHMS-1) + agg.algorithm) * NCCL_NUM_PROTOCOLS + agg.protocol;
+#ifdef SOFT_TIO
+        if (comm->ccMode == CCMODE_SOFT_ENC_TRANS) {
+          CUDACHECK(hipMemcpy(&comm->devComm->funcindex, &funcIndex, sizeof(int), hipMemcpyHostToDevice));
+        } else
+#endif
+        comm->devComm->funcindex = funcIndex;
+      }
+      
       if (agg.devFuncId < 0) {
         WARN("%s: unsupported collective. Please ensure the collective has been enabled in build.", __func__);
         return ncclInvalidUsage;
@@ -2791,6 +2800,11 @@ static void getSuperNodeP2pPerPeerChannels(struct ncclComm* comm) {
     targetChannels = 1;
   } 
   comm->p2pnChannelsPerPeer = std::min(targetChannels, comm->p2pnChannels);
+#ifdef SOFT_TIO
+  if (comm->ccMode == CCMODE_SOFT_ENC_TRANS) {
+    CUDACHECKIGNORE(hipMemcpy(&comm->devComm->p2pnChannelsPerPeer, &comm->p2pnChannelsPerPeer, sizeof(int), hipMemcpyHostToDevice));
+  } else
+#endif
   comm->devComm->p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
 }
 
@@ -2825,7 +2839,13 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
       p2p->parentP2pType = currentParentP2p();
       if (planner->nTasksP2p == 1) {
         auto updateChannels = [&](int channels) {
-          comm->devComm->p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer = std::min(channels, comm->p2pnChannels);
+          comm->p2pnChannelsPerPeer = std::min(channels, comm->p2pnChannels);
+#ifdef SOFT_TIO
+          if (comm->ccMode == CCMODE_SOFT_ENC_TRANS) {
+            CUDACHECKIGNORE(hipMemcpy(&comm->devComm->p2pnChannelsPerPeer, &comm->p2pnChannelsPerPeer, sizeof(int), hipMemcpyHostToDevice));
+          } else
+#endif
+          comm->devComm->p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
         };
         auto maybeRestore = [&]() {
           if (comm->p2pnChannelsPerPeer != comm->oriP2pnChannelsPerPeer) {
