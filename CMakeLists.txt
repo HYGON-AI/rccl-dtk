@@ -49,7 +49,8 @@ option(USE_RCCL_FP8                            "Compile with RCCL fp8"          
 option(SUPPORT_PCIE_CHANNEL                    "Support PCIE CHANNEL"                          ON)
 option(HIP_UNCACHED_XDP_MEMORY                 "Support XDP"                                   ON)
 option(SUPPORT_PLUGINS_SHCA                    "Support PLUGINS SHCA"                          OFF)
-option(SUPPORT_HSA_EXT_RPC                    "Support VMM with HSA_EXT_RPC"                   ON)
+option(SUPPORT_HSA_EXT_RPC                     "Support VMM with HSA_EXT_RPC"                  ON)
+option(SUPPORT_SOFT_TIO                        "SUPPORT SOFT_TIO compile flag"                 ON)
 # Default GPU architectures to build
 #==================================================================================================
 set(DEFAULT_GPUS
@@ -1279,6 +1280,9 @@ if (SUPPORT_PCIE_CHANNEL)
 endif()
 if (SUPPORT_HSA_EXT_RPC)
   target_compile_definitions(rccl PRIVATE RSMI_SUPPORT_HSA_EXT_RPC)
+endif()
+if(SUPPORT_SOFT_TIO)
+  target_compile_definitions(rccl PRIVATE SOFT_TIO)
 endif()
 
 ## Set RCCL linked library directories

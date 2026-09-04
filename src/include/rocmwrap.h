@@ -34,11 +34,19 @@ typedef hsa_status_t (*PFN_hsa_amd_agent_iterate_memory_pools)(hsa_agent_t agent
 typedef hsa_status_t (*PFN_hsa_amd_memory_pool_allocate)(hsa_amd_memory_pool_t memory_pool, size_t size, uint32_t flags, void** ptr);
 typedef hsa_status_t (*PFN_hsa_amd_memory_pool_free)(void* ptr);
 
+#ifdef SOFT_TIO
+#define CCMODE_SOFT_ENC_TRANS  (0x00000002)
+#define CCMODE_DMA_ENC_TRANS   (0x00000004)
+#endif
+
 struct hsaAgentInfo {
   int rank;
   bool validHsaAgent;
   int64_t busId;
   hsa_agent_t hsaAgent;
+#ifdef SOFT_TIO
+  uint16_t ccMode;
+#endif
 };
 
 
