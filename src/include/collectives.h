@@ -34,6 +34,8 @@
 #define BROADCAST_CHUNKSTEPS 1
 #define REDUCE_SLICESTEPS 1
 #define REDUCE_CHUNKSTEPS 1
+#define REDUCE_CHUNKSTEPS_SUPERNODE 4
+#define REDUCE_SLICESTEPS_SUPERNODE 4
 #define NCCL_MAX_SLICE_PER_CHUNK 2  // max value for CHUNKSTEPS/SLICESTEPS, must accord with above
 #define NCCL_MAX_NET_SIZE (1024*1024*1024L) // Rather than send INT_MAX which is 2G-1, send a power of two.
 #define ALLTOALL_PIVOT_SLICESTEPS 2

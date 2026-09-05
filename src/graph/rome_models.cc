@@ -2784,7 +2784,7 @@ ncclResult_t parseHygon(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
   char pattern[256];
   NCCLCHECK(parseRomeSystem(system, &romeTopo, pattern, devids)); 
 
-  if (ngpus == 4 && system->nHosts == 1 && is4GpuHylink()) {
+  if (ngpus == 4 && system->nHosts == 1 && is4GpuHylink() && !system->isSuperNode) {
     NCCLCHECK(parseGraph(hygonBWSingleNode4gpuModel.ringBase, system, graph, devids, NULL, false));
   }
 
