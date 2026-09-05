@@ -2017,6 +2017,8 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
 
   // Topo detection / System graph creation
   NCCLCHECKGOTO(ncclTopoGetSystem(comm, &comm->topo), ret, fail);
+  // save SuperNdoe info
+  comm->topo->isSuperNode = comm->isSuperNode;
   // save nRanks to ncclTopoSystem as indicator of multi-node
   comm->topo->nRanks = comm->nRanks;
   // init netGdrLevel
@@ -2434,7 +2436,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   comm->CollSimpleChannels = comm->nChannels;
   // set Simple nChannels to rcclParamCollSimpleChannels() when gcn=gfx936
   if(IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") || (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && comm->isSuperNode)){
-    int CollSimpleChannels = rcclParamCollSimpleChannels() != -2 ? rcclParamCollSimpleChannels() : (comm->nNodes == 1 && comm->nRanks == 4) ? 32 : 16;
+    int CollSimpleChannels = rcclParamCollSimpleChannels() != -2 ? rcclParamCollSimpleChannels() : (comm->nNodes == 1 && comm->nRanks <= 4) ? 32 : 16;
     if(CollSimpleChannels <= comm->nChannels && CollSimpleChannels > 0) comm->CollSimpleChannels = CollSimpleChannels;
   }
   /* until now, all info of comm should be known. We can initialize shared resources and

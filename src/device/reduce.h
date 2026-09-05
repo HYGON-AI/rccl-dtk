@@ -61,8 +61,13 @@ namespace {
 template<typename T, typename RedOp>
 struct RunWorkColl<ncclFuncReduce, T, RedOp, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE> {
   __device__ __forceinline__ void run(int tid, int nthreads, struct ncclDevWorkColl* work) {
-    using Proto = ProtoSimple<REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS>;
-    runRing<T, RedOp, Proto>(tid, nthreads, work);
+    if (work->isSuperNode) {
+      using Proto = ProtoSimple<REDUCE_CHUNKSTEPS_SUPERNODE/REDUCE_SLICESTEPS_SUPERNODE, REDUCE_SLICESTEPS_SUPERNODE>;
+      runRing<T, RedOp, Proto>(tid, nthreads, work);
+    } else {
+      using Proto = ProtoSimple<REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS>;
+      runRing<T, RedOp, Proto>(tid, nthreads, work);
+    }
   }
 };
 
