@@ -32,6 +32,7 @@
 #include <unistd.h>
 #include <hip/hip_runtime.h>
 #include <string.h>
+#include <ctype.h>
 #include <errno.h>
 #include <assert.h>
 #include <dlfcn.h>
@@ -41,6 +42,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 #include "ibvwrap.h"
@@ -246,9 +248,30 @@ static ncclResult_t ncclGetPathLevel(const std::string& path, int level, std::st
   return ncclInternalError;
 }
 
-static ncclResult_t ncclGetNicRealPaths(std::map<int, std::string>& ncclNicToRealPath) {
+static ncclResult_t ncclGetNicNameToIndex(std::map<std::string, int>& ncclNicNameToIndex,
+                                          struct ibv_device** devices, int nicCount) {
+  ncclNicNameToIndex.clear();
+  if (nicCount == 0) return ncclSuccess;
+  if (devices == NULL || nicCount < 0) return ncclInvalidArgument;
+
+  for (int nicIndex = 0; nicIndex < nicCount; nicIndex++) {
+    const char* nicName = wrap_ibv_get_device_name(devices[nicIndex]);
+    if (nicName == NULL || nicName[0] == '\0') {
+      WARN("DetectTopo could not get name for NIC index %d", nicIndex);
+      continue;
+    }
+    ncclNicNameToIndex[std::string(nicName)] = nicIndex;
+  }
+  return ncclSuccess;
+}
+
+static ncclResult_t ncclGetNicRealPaths(std::map<int, std::string>& ncclNicToRealPath,
+                                        struct ibv_device** devices, int nicCount) {
   ncclNicToRealPath.clear();
   const char* ibSysPath = "/sys/class/infiniband";
+  std::map<std::string, int> ncclNicNameToIndex;
+  NCCLCHECK(ncclGetNicNameToIndex(ncclNicNameToIndex, devices, nicCount));
+
   DIR* dir = NULL;
   if((dir = opendir(ibSysPath)) == NULL) {
     INFO(NCCL_INIT, "Could not open %s: %s", ibSysPath, strerror(errno));
@@ -256,12 +279,12 @@ static ncclResult_t ncclGetNicRealPaths(std::map<int, std::string>& ncclNicToRea
     struct dirent* entry;
     while((entry = readdir(dir)) != NULL) {
       const char* devName = entry->d_name;
-      if(strncmp(devName, "mlx5_", strlen("mlx5_")) != 0) continue;
-
-      char* end = NULL;
-      long  nicIndex = strtol(devName + strlen("mlx5_"), &end, 10);
-      if(end == devName + strlen("mlx5_") || *end != '\0' || nicIndex < 0 || nicIndex > INT_MAX) continue;
-      const int nic = static_cast<int>(nicIndex);
+      auto nicIt = ncclNicNameToIndex.find(devName);
+      if (nicIt == ncclNicNameToIndex.end()) {
+        INFO(NCCL_INIT, "DetectTopo NIC %s is not present in the ibv device list", devName);
+        continue;
+      }
+      const int nic = nicIt->second;
       char nicPath[PATH_MAX];
       snprintf(nicPath, sizeof(nicPath), "%s/%s", ibSysPath, devName);
 
@@ -270,8 +293,14 @@ static ncclResult_t ncclGetNicRealPaths(std::map<int, std::string>& ncclNicToRea
         INFO(NCCL_INIT, "DetectTopo could not get realpath for %s: %s", nicPath, strerror(errno));
         continue;
       }
-      ncclNicToRealPath[nic] = realPath;
-      INFO(NCCL_INIT, "DetectTopo NIC mlx5_%d realpath %s", nic, realPath);
+      auto pathIt = ncclNicToRealPath.find(nic);
+      if (pathIt != ncclNicToRealPath.end()) {
+        WARN("DetectTopo duplicate ibv device index %d for NIC %s; keeping the first path %s",
+             nic, devName, pathIt->second.c_str());
+        continue;
+      }
+      ncclNicToRealPath.emplace(nic, realPath);
+      INFO(NCCL_INIT, "DetectTopo NIC %s index %d realpath %s", devName, nic, realPath);
     }
     closedir(dir);
   }
@@ -298,12 +327,13 @@ static ncclResult_t ncclGetGpuRealPaths(std::map<int, std::string>& ncclGpuToRea
   return ncclSuccess;
 }
 
-static ncclResult_t ncclGetSysGpuToNic(std::map<int, std::vector<int>>& ncclSysGpuToNic) {
+static ncclResult_t ncclGetSysGpuToNic(std::map<int, std::set<int>>& ncclSysGpuToNic,
+                                       struct ibv_device** devices, int nicCount) {
   ncclSysGpuToNic.clear();
 
   std::map<int, std::string> ncclNicToRealPath;
   std::map<int, std::string> ncclGpuToRealPath;
-  NCCLCHECK(ncclGetNicRealPaths(ncclNicToRealPath));
+  NCCLCHECK(ncclGetNicRealPaths(ncclNicToRealPath, devices, nicCount));
   NCCLCHECK(ncclGetGpuRealPaths(ncclGpuToRealPath));
 
   std::map<int, std::string> nicToLevel5;
@@ -319,12 +349,12 @@ static ncclResult_t ncclGetSysGpuToNic(std::map<int, std::vector<int>>& ncclSysG
     std::string gpuLevel5;
     NCCLCHECK(ncclGetPathLevel(gpuRealPath, 5, gpuLevel5));
 
-    std::vector<int>& nics = ncclSysGpuToNic[gpu];
+    std::set<int>& nics = ncclSysGpuToNic[gpu];
     for (const auto& nicLevelEntry : nicToLevel5) {
       const int nic = nicLevelEntry.first;
       const std::string& nicLevel5 = nicLevelEntry.second;
       if (nicLevel5 == gpuLevel5) {
-        nics.push_back(nic);
+        nics.insert(nic);
       }
     }
 
@@ -404,8 +434,8 @@ static bool checkGpuNum() {
   return true;
 }
 
-static ncclResult_t ncclForceUniformAffinity(const std::map<int, std::vector<int>>& ncclSysGpuToNic,
-                                             std::map<int, std::vector<int>>& gpuToBestNicMap) {
+static ncclResult_t ncclForceUniformAffinity(const std::map<int, std::set<int>>& ncclSysGpuToNic,
+                                             std::map<int, std::set<int>>& gpuToBestNicMap) {
   ncclResult_t ret = ncclSuccess;
   if (!checkGpuNum()) return ncclSuccess;
   std::map<int, std::vector<int>> ncclOamToGpus;
@@ -420,12 +450,17 @@ static ncclResult_t ncclForceUniformAffinity(const std::map<int, std::vector<int
 
       auto it0 = ncclSysGpuToNic.find(gpu0);
       auto it1 = ncclSysGpuToNic.find(gpu1);
-      if (it0 != ncclSysGpuToNic.end()) {
+      if (it0 != ncclSysGpuToNic.end() && it1 == ncclSysGpuToNic.end()) {
         gpuToBestNicMap[gpu0] = it0->second;
         gpuToBestNicMap[gpu1] = it0->second;
-      } else if (it1 != ncclSysGpuToNic.end()) {
+      } else if (it1 != ncclSysGpuToNic.end() && it0 == ncclSysGpuToNic.end()) {
         gpuToBestNicMap[gpu0] = it1->second;
         gpuToBestNicMap[gpu1] = it1->second;
+      } else if (it0 != ncclSysGpuToNic.end() && it1 != ncclSysGpuToNic.end()) {
+        std::set<int> mergedNics = it0->second;
+        mergedNics.insert(it1->second.begin(), it1->second.end());
+        gpuToBestNicMap[gpu0] = mergedNics;
+        gpuToBestNicMap[gpu1] = mergedNics;
       } else {
         noGpuCount += 2;
       }
@@ -436,15 +471,14 @@ failed:
   return ncclSuccess;
 }
 
-static ncclResult_t ncclMergeGpuToNicMap(const std::map<int, std::vector<int>>& gpuToBestNicMap,
+static ncclResult_t ncclMergeGpuToNicMap(const std::map<int, std::set<int>>& gpuToBestNicMap,
                                          std::map<std::vector<int>, std::vector<int>>& gpuGroupToNicMap) {
   gpuGroupToNicMap.clear();
 
   std::map<std::vector<int>, std::vector<int>> nicGroupToGpuMap;
   for (const auto& gpuToNicEntry : gpuToBestNicMap) {
     const int gpu = gpuToNicEntry.first;
-    std::vector<int> nicGroup = gpuToNicEntry.second;
-    std::sort(nicGroup.begin(), nicGroup.end());
+    std::vector<int> nicGroup(gpuToNicEntry.second.begin(), gpuToNicEntry.second.end());
     nicGroupToGpuMap[nicGroup].push_back(gpu);
   }
 
@@ -457,16 +491,8 @@ static ncclResult_t ncclMergeGpuToNicMap(const std::map<int, std::vector<int>>& 
   return ncclSuccess;
 }
 
-static ncclResult_t ncclGetNicNum(int& nicNum) {
-  struct ibv_device** devices = NULL;
-  NCCLCHECK(wrap_ibv_get_device_list(&devices, &nicNum));
-  NCCLCHECK(wrap_ibv_free_device_list(devices));
-  return ncclSuccess;
-}
-
-static ncclResult_t ncclFillDetectTopoInfo(std::map<int, std::vector<int>>& gpuToBestNicMap, topoInfo& topo){
-  int nicNum = 0;
-  NCCLCHECK(ncclGetNicNum(nicNum));
+static ncclResult_t ncclFillDetectTopoInfo(std::map<int, std::set<int>>& gpuToBestNicMap,
+                                           int nicNum, topoInfo& topo){
   int gpuNum = 0;
   CUDACHECK(cudaGetDeviceCount(&gpuNum));
   if (gpuNum <= 0 || nicNum <= 0) return ncclInternalError;
@@ -572,7 +598,8 @@ char *getNicBusid(struct ibv_device *dev) {
   return strdup(base);
 }
 
-ncclResult_t ncclDumpTopoXml(const topoInfo *topo, const char *filename, struct ncclComm* comm) {
+ncclResult_t ncclDumpTopoXml(const topoInfo *topo, const char *filename, struct ncclComm* comm,
+                             struct ibv_device** devices, int nicCount) {
   const char *linkSpeed = "32.0 GT/s PCIe";
   int linkWidth = 16;
   FILE *fp = fopen(filename, "w");
@@ -581,12 +608,10 @@ ncclResult_t ncclDumpTopoXml(const topoInfo *topo, const char *filename, struct 
     return ncclInternalError;
   }
 
-  struct ibv_device** devices = NULL;
-  int nicCount = 0;
   ncclResult_t ret = ncclSuccess;
   char parent[MAX_STR_LEN];
   char busIdStr[] = "00000000:00:00.0";
-  NCCLCHECKGOTO(wrap_ibv_get_device_list(&devices, &nicCount), ret, cleanup);
+  if (devices == NULL || nicCount < 0) return ncclInvalidArgument;
 
   fprintf(fp, "<system version=\"2\">\n");
 
@@ -626,7 +651,6 @@ ncclResult_t ncclDumpTopoXml(const topoInfo *topo, const char *filename, struct 
   fprintf(fp, "</system>\n");
 cleanup:
   if(fp) fclose(fp);
-  if(devices) wrap_ibv_free_device_list(devices);
   return ret;
 }
 
@@ -681,25 +705,31 @@ static ncclResult_t ncclAutoDetectTopo(struct ncclComm* comm) {
   //2.强制NUMA指定
   topoInfo topo;
   memset(&topo, 0, sizeof(topo));
+  ncclResult_t ret = ncclSuccess;
+  struct ibv_device** devices = NULL;
+  int nicCount = 0;
+  NCCLCHECKGOTO(wrap_ibv_get_device_list(&devices, &nicCount), ret, cleanup);
   if(!skipDetect && comm->cudaDev == 0) {
-    std::map<int, std::vector<int>> gpuToBestNicMap;
-    std::map<int, std::vector<int>> ncclSysGpuToNic;
+    std::map<int, std::set<int>> gpuToBestNicMap;
+    std::map<int, std::set<int>> ncclSysGpuToNic;
     // 获取系统上报的GPU与NIC的匹配关系
-    NCCLCHECK(ncclGetSysGpuToNic(ncclSysGpuToNic));
+    NCCLCHECKGOTO(ncclGetSysGpuToNic(ncclSysGpuToNic, devices, nicCount), ret, cleanup);
     // 强制匹配NUMA流程
-    NCCLCHECK(ncclForceUniformAffinity(ncclSysGpuToNic, gpuToBestNicMap));
+    NCCLCHECKGOTO(ncclForceUniformAffinity(ncclSysGpuToNic, gpuToBestNicMap), ret, cleanup);
     // 3.填充topo信息
     if(!gpuToBestNicMap.empty()) {
       // 按照gpu的顺序直接给topo赋值
-      NCCLCHECK(ncclFillDetectTopoInfo(gpuToBestNicMap, topo));
+      NCCLCHECKGOTO(ncclFillDetectTopoInfo(gpuToBestNicMap, nicCount, topo), ret, cleanup);
       ncclLogDetectTopoInfo("DetectTopo local", comm->rank, comm->cudaDev, topo);
-      NCCLCHECK(ncclDumpTopoXml(&topo, comm->detectTopoPath, comm));
+      NCCLCHECKGOTO(ncclDumpTopoXml(&topo, comm->detectTopoPath, comm, devices, nicCount), ret, cleanup);
     }
   }
   // 4.节点内barrier操作
-  NCCLCHECK(bootstrapBroadcast(comm->bootstrap, comm->rank, comm->nRanks, 0, &topo, sizeof(topo)));
+  NCCLCHECKGOTO(bootstrapBroadcast(comm->bootstrap, comm->rank, comm->nRanks, 0, &topo, sizeof(topo)), ret, cleanup);
 
-  return ncclSuccess;
+cleanup:
+  if (devices != NULL) wrap_ibv_free_device_list(devices);
+  return ret;
 }
 
 static ncclResult_t ncclInit() {
