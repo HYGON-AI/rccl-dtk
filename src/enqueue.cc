@@ -400,6 +400,7 @@ ncclResult_t ncclTasksRegAndEnqueue(struct ncclComm* comm) {
     devWork.redOpArgIsPtr = task->opDev.scalarArgIsPtr;
     devWork.oneNode = (comm->nNodes == 1);
     devWork.rcclUseOneSlice = comm->rcclUseOneSlice;
+    devWork.isSuperNode = comm->isSuperNode;
     //[Added-comment] opCount is missing for collDevWork, adding here
     devWork.opCount = task->opCount;
 	  
