@@ -213,6 +213,7 @@ struct ncclTopoSystem {
 
   // [RCCL] Track hostIdx to support rail-optimized rings/trees
   int hostIdx;
+  bool isSuperNode;
   bool useRailOptimizedTrees;
 };
 

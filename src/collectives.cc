@@ -373,7 +373,8 @@ ncclResult_t ncclReduce_impl(const void* sendbuff, void* recvbuff, size_t count,
 
   struct ncclInfo info = { ncclFuncReduce, "Reduce",
     sendbuff, recvbuff, count, datatype, op, root, comm, stream, /* Args */
-    REDUCE_CHUNKSTEPS, REDUCE_SLICESTEPS, nullptr };
+    comm->isSuperNode ? REDUCE_CHUNKSTEPS_SUPERNODE : REDUCE_CHUNKSTEPS,
+    comm->isSuperNode ? REDUCE_SLICESTEPS_SUPERNODE : REDUCE_SLICESTEPS, nullptr };
 
   if (!mscclIsCaller()) // when msccl falls back to
   {
