@@ -694,7 +694,7 @@ static ncclResult_t ncclAutoDetectTopo(struct ncclComm* comm) {
     const char* xmlTopoFile = ncclGetEnv("NCCL_TOPO_FILE");
     ncclNetProperties_t props;
     NCCLCHECK(comm->ncclNet->getProperties(0, &props));
-    if(xmlTopoFile != NULL || access(comm->detectTopoPath, F_OK) == 0 || strncmp(props.name, "mlx5", 4) != 0) {
+    if(xmlTopoFile != NULL || access(comm->detectTopoPath, F_OK) == 0) {
       skipDetect = true;
       INFO(NCCL_INIT, "Skipping topology detection, NCCL_TOPO_FILE(%s), %s(%s), NICName(%s).", xmlTopoFile ? xmlTopoFile: "not set", 
         comm->detectTopoPath, access(comm->detectTopoPath, F_OK) == 0 ? "exists" : "does not exists", props.name);
@@ -708,8 +708,9 @@ static ncclResult_t ncclAutoDetectTopo(struct ncclComm* comm) {
   ncclResult_t ret = ncclSuccess;
   struct ibv_device** devices = NULL;
   int nicCount = 0;
-  NCCLCHECKGOTO(wrap_ibv_get_device_list(&devices, &nicCount), ret, cleanup);
   if(!skipDetect && comm->cudaDev == 0) {
+    NCCLCHECKGOTO(wrap_ibv_symbols(), ret, cleanup);
+    NCCLCHECKGOTO(wrap_ibv_get_device_list(&devices, &nicCount), ret, cleanup);
     std::map<int, std::set<int>> gpuToBestNicMap;
     std::map<int, std::set<int>> ncclSysGpuToNic;
     // 获取系统上报的GPU与NIC的匹配关系
