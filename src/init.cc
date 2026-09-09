@@ -1652,7 +1652,7 @@ NCCL_PARAM(MNNVLEnable, "MNNVL_ENABLE", 2);
 
 RCCL_PARAM(NetGdrWriteUseXdpEnable, "GDR_WRITE_USE_XDP_ENABLE", 1);
 
-RCCL_PARAM(DisableCcMode, "DISABLE_CCMODE", 0);
+RCCL_PARAM(DisableCcMode, "DISABLE_CCMODE", 1);
 
 /* 获取本地rank的hsa agent */
 ncclResult_t getLocalHsaAgent(struct ncclComm* comm)
