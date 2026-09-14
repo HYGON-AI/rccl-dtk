@@ -9,12 +9,67 @@
 #include <vector>
 
 #if defined(RCCL_ROCPROFILER_REGISTER) && RCCL_ROCPROFILER_REGISTER > 0
-#    include <rocprofiler-register/rocprofiler-register.h>
 
-#    define ROCP_REG_VERSION                                                             \
-        ROCPROFILER_REGISTER_COMPUTE_VERSION_3(NCCL_MAJOR, NCCL_MINOR, NCCL_PATCH)
+using rocprofiler_register_library_indentifier_t = uint64_t;
 
-ROCPROFILER_REGISTER_DEFINE_IMPORT(rccl, ROCP_REG_VERSION)
+#define ROCPROFILER_REGISTER_COMPUTE_VERSION_3(MAJOR, MINOR, PATCH) \
+    (((uint32_t)(MAJOR) << 22) | ((uint32_t)(MINOR) << 12) | (uint32_t)(PATCH))
+
+#define ROCPROFILER_REGISTER_DEFINE_IMPORT(NAME, VERSION) \
+    extern "C" void rocprofiler_register_import_##NAME( \
+        void**, size_t, rocprofiler_register_library_indentifier_t) {}
+
+#define ROCPROFILER_REGISTER_IMPORT_FUNC(NAME) rocprofiler_register_import_##NAME
+
+#define ROCP_REG_SUCCESS 0
+
+#define RCCL_ROCP_REG_VERSION \
+    ROCPROFILER_REGISTER_COMPUTE_VERSION_3(RCCL_ROCP_REG_VERSION_MAJOR, \
+                                           RCCL_ROCP_REG_VERSION_MINOR, \
+                                           RCCL_ROCP_REG_VERSION_PATCH)
+
+ROCPROFILER_REGISTER_DEFINE_IMPORT(rccl, RCCL_ROCP_REG_VERSION)
+
+#include <dlfcn.h>
+
+namespace {
+struct RocprofilerRegisterLoader {
+  using api_table_fn_t = int (*)(const char*, void*, uint32_t, void**, size_t,
+                                 rocprofiler_register_library_indentifier_t*);
+  using error_string_fn_t = const char* (*)(int);
+
+  void* handle = nullptr;
+  api_table_fn_t api_table_fn = nullptr;
+  error_string_fn_t error_string_fn = nullptr;
+
+  RocprofilerRegisterLoader() {
+    handle = dlopen("librocprofiler-register.so", RTLD_NOW | RTLD_LOCAL);
+    if (!handle) {
+      handle = dlopen("librocprofiler-register.so.0", RTLD_NOW | RTLD_LOCAL);
+    }
+    if (handle) {
+      api_table_fn = reinterpret_cast<api_table_fn_t>(
+          dlsym(handle, "rocprofiler_register_library_api_table"));
+      error_string_fn = reinterpret_cast<error_string_fn_t>(
+          dlsym(handle, "rocprofiler_register_error_string"));
+    }
+  }
+
+  ~RocprofilerRegisterLoader() {
+    if (handle) {
+      dlclose(handle);
+    }
+  }
+
+  bool available() const { return api_table_fn != nullptr && error_string_fn != nullptr; }
+};
+
+inline RocprofilerRegisterLoader& rocp_reg_loader() {
+  static RocprofilerRegisterLoader instance;
+  return instance;
+}
+}  // namespace
+
 #endif
 
 ncclResult_t
@@ -291,23 +346,27 @@ RcclGetFunctionTable_impl()
                                              };
 
 #if defined(RCCL_ROCPROFILER_REGISTER) && RCCL_ROCPROFILER_REGISTER > 0
-    std::array<void*, 1>                       table_array{ tbl };
-    rocprofiler_register_library_indentifier_t lib_id =
-        rocprofiler_register_library_indentifier_t{};
-    rocprofiler_register_error_code_t rocp_reg_status =
-        rocprofiler_register_library_api_table(
-            "rccl", &ROCPROFILER_REGISTER_IMPORT_FUNC(rccl), ROCP_REG_VERSION,
-            table_array.data(), table_array.size(), &lib_id);
+    auto& loader = rocp_reg_loader();
+    if(loader.available())
+    {
+        std::array<void*, 1> table_array{ tbl };
+        rocprofiler_register_library_indentifier_t lib_id =
+            rocprofiler_register_library_indentifier_t{};
+        int rocp_reg_status =
+            loader.api_table_fn("rccl",
+                                reinterpret_cast<void*>(&ROCPROFILER_REGISTER_IMPORT_FUNC(rccl)),
+                                RCCL_ROCP_REG_VERSION, table_array.data(), table_array.size(),
+                                &lib_id);
 
-    INFO(NCCL_COLL,
-         "[rocprofiler-sdk-rccl][ = %d ] rocprofiler-register returned code = %d : %s",
-         getpid(), rocp_reg_status, rocprofiler_register_error_string(rocp_reg_status));
+        INFO(NCCL_COLL,
+             "[rocprofiler-sdk-rccl][ = %d ] rocprofiler-register returned code = %d : %s",
+             getpid(), rocp_reg_status, loader.error_string_fn(rocp_reg_status));
 
-    if(rocp_reg_status != ROCP_REG_SUCCESS && rocp_reg_status != ROCP_REG_NO_TOOLS)
-        WARN("[rocprofiler-sdk-rccl][%d] rocprofiler-register failed with error code %d "
-             ": %s",
-             getpid(), rocp_reg_status,
-             rocprofiler_register_error_string(rocp_reg_status));
+        if(rocp_reg_status != ROCP_REG_SUCCESS)
+            WARN("[rocprofiler-sdk-rccl][%d] rocprofiler-register failed with error code %d "
+                 ": %s",
+                 getpid(), rocp_reg_status, loader.error_string_fn(rocp_reg_status));
+    }
 #endif
 
     return tbl;

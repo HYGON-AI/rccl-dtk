@@ -1288,7 +1288,10 @@ endif()
 ## Set RCCL linked library directories
 target_link_directories(rccl PRIVATE ${ROCM_SMI_LIB_DIR})
 
-if (0)
+############################
+# ROCPROFILER_REGISTER
+############################
+if (ROCM_VERSION VERSION_GREATER_EQUAL "60100")
     option(RCCL_ROCPROFILER_REGISTER "Enable rocprofiler-register support" ON)
 else()
     if(RCCL_ROCPROFILER_REGISTER)
@@ -1297,10 +1300,13 @@ else()
     set(RCCL_ROCPROFILER_REGISTER OFF CACHE BOOL "" FORCE)
 endif()
 if(RCCL_ROCPROFILER_REGISTER)
-  find_package(rocprofiler-register REQUIRED)
-  target_compile_definitions(rccl PRIVATE RCCL_ROCPROFILER_REGISTER=1)
-  target_link_libraries(
-      rccl PRIVATE rocprofiler-register::rocprofiler-register)
+    target_compile_definitions(rccl PRIVATE RCCL_ROCPROFILER_REGISTER=1
+        RCCL_ROCP_REG_VERSION_MAJOR=${NCCL_MAJOR}
+        RCCL_ROCP_REG_VERSION_MINOR=${NCCL_MINOR}
+        RCCL_ROCP_REG_VERSION_PATCH=${NCCL_PATCH})
+    # rocprofiler-register is loaded dynamically at runtime via dlopen/dlsym.
+    # No compile-time find_package or target_link_libraries needed.
+    # If the library is not present at runtime, profiling registration is silently skipped.
 endif()
 
 ## Set RCCL linked libraries
