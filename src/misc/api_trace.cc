@@ -363,7 +363,7 @@ RcclGetFunctionTable_impl()
              getpid(), rocp_reg_status, loader.error_string_fn(rocp_reg_status));
 
         if(rocp_reg_status != ROCP_REG_SUCCESS)
-            WARN("[rocprofiler-sdk-rccl][%d] rocprofiler-register failed with error code %d "
+            INFO(NCCL_PROFILE , "[rocprofiler-sdk-rccl][%d] rocprofiler-register failed with error code %d "
                  ": %s",
                  getpid(), rocp_reg_status, loader.error_string_fn(rocp_reg_status));
     }
