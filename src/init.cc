@@ -725,12 +725,11 @@ static ncclResult_t ncclAutoDetectTopo(struct ncclComm* comm) {
       NCCLCHECKGOTO(ncclDumpTopoXml(&topo, comm->detectTopoPath, comm, devices, nicCount), ret, cleanup);
     }
   }
-  // 4.节点内barrier操作
+  cleanup:
+  // 4.barrier
   NCCLCHECKGOTO(bootstrapBroadcast(comm->bootstrap, comm->rank, comm->nRanks, 0, &topo, sizeof(topo)), ret, cleanup);
-
-cleanup:
   if (devices != NULL) wrap_ibv_free_device_list(devices);
-  return ret;
+  return ncclSuccess;
 }
 
 static ncclResult_t ncclInit() {
