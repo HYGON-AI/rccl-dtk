@@ -2790,27 +2790,61 @@ static int getP2pPerPeerChannels(struct ncclComm* comm, struct ncclInfo* info, n
 static void getSuperNodeP2pPerPeerChannels(struct ncclComm* comm, ncclP2pInfo_t parentP2p) {
   int targetChannels;
   if (comm->nNodes == 1) {
-    targetChannels = comm->nRanks < 4 ? 16 : 8;
-  } else if (parentP2p == P2pAllToAllv) {
-    if (comm->nRanks <= 4) {
-      targetChannels = 16;
-    } else if (comm->nRanks <= 8) {
-      targetChannels = 8;
-    } else if (comm->nRanks <= 16) {
-      targetChannels = 4;
-    } else if (comm->nRanks <= 28) {
-      targetChannels = 2;
-    } else {
-      targetChannels = 1;
+    switch (parentP2p) {
+      case P2pGather:
+      case P2pScatter:
+        targetChannels = 16;
+        break;
+      case P2pAllToAll:
+        if (comm->nRanks <= 2) {
+          targetChannels = 16;
+        } else if (comm->nRanks <= 4) {
+          targetChannels = 8;
+        } else if (comm->nRanks <= 8) {
+          targetChannels = 2;
+        } else {
+          targetChannels = 1;
+        }
+        break;  
+      case P2pAllToAllv:
+        if (comm->nRanks <= 2) {
+          targetChannels = 16;
+        } else if (comm->nRanks <= 4) {
+          targetChannels = 8;
+        } else if (comm->nRanks <= 8) {
+          targetChannels = 4;
+        } else {
+          targetChannels = 2;
+        }
+        break;
+      default:
+        targetChannels = 16;
+        break;
     }
-  } else if (comm->nRanks < 8) {
-    targetChannels = 16;
-  } else if (comm->nRanks <= 12) {
-    targetChannels = 4;
-  } else if (comm->nRanks <= 24) {
-    targetChannels = 2;
   } else {
-    targetChannels = 1;
+    if (parentP2p == P2pAllToAllv) {
+      if (comm->nRanks <= 4) {
+        targetChannels = 16;
+      } else if (comm->nRanks <= 8) {
+        targetChannels = 8;
+      } else if (comm->nRanks <= 16) {
+        targetChannels = 4;
+      } else if (comm->nRanks <= 28) {
+        targetChannels = 2;
+      } else {
+        targetChannels = 1;
+      }
+    } else {
+      if (comm->nRanks < 8) {
+        targetChannels = 16;
+      } else if (comm->nRanks <= 12) {
+        targetChannels = 4;
+      } else if (comm->nRanks <= 24) {
+        targetChannels = 2;
+      } else {
+        targetChannels = 1;
+      }
+    }
   }
   comm->p2pnChannelsPerPeer = std::min(targetChannels, comm->p2pnChannels);
 #ifdef SOFT_TIO
