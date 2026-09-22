@@ -1376,7 +1376,7 @@ NCCL_PARAM(P2pPxnLevel, "P2P_PXN_LEVEL", 2);
 ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank) {
   int64_t netId = -1;
   int netDev = -1;
-  if (graph) {
+  if (graph && (comm->superNodeMixIBEnable != 1 || peerRank == -1)) {
     // Honor the net device in the graph
     int channel = channelId%graph->nChannels;
     int ngpus = comm->topo->nodes[GPU].count;

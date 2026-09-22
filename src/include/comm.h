@@ -467,6 +467,7 @@ struct ncclPeerInfo {
   // MNNVL support
   nvmlGpuFabricInfoV_t fabricInfo;
   int cuMemSupport;
+  int superNodeMixIBAvailable;
   char uniqueId[32];
   int version;
   char podSn[64];
@@ -589,6 +590,15 @@ struct ncclComm {
   int oriP2pnChannelsPerPeer;
   bool autoPerPeerOn;
   int minLinkType; // 所有gpu间的最快的链接类型
+
+  // Channels for intra super node can enable IB
+  int superNodeMixIBEnable;
+  // Validated MixIB config, finalized once in ncclValidateMixIbConfig.
+  // Collective: the last superNodeMixIBCollNChannels channels of [0, nChannels) use NET.
+  int superNodeMixIBCollNChannels;
+  // P2P: explicit channel ids (each within [0, p2pnChannels)) that use NET on connIndex 1.
+  int p2pMixIbNChannels;
+  int p2pMixIbChannels[MAXCHANNELS];
 
   // Should this comm allocate LL buffers for network P2P connections?
   bool allocP2pNetLLBuffers;

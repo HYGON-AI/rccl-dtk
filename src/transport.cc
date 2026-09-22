@@ -11,6 +11,9 @@
 #define ENABLE_TIMER 0
 #include "timer.h"
 #include "transport.h"
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <vector>
 
 extern bool isHswInterConnect(struct ncclPeerInfo* info1, struct ncclPeerInfo* info2);
@@ -23,6 +26,107 @@ struct ncclTransport* ncclTransports[NTRANSPORTS+3] = {
   &psmP2pTransport,
   &psmNetTransport
 };
+
+// Comma-separated list of 0-based P2P channel IDs to use as IB (NET) channels,
+// e.g. RCCL_SUPERNODE_MIX_IB_P2P_CHANNEL_IDS="18,19,21". IDs must lie within
+// [0, comm->p2pnChannels). Empty or unset disables P2P MixIB. Parsed once and cached.
+static const std::vector<int>& p2pIbChannelIds() {
+  static const std::vector<int> ids = []() {
+    std::vector<int> v;
+    const char* env = ncclGetEnv("RCCL_SUPERNODE_MIX_IB_P2P_CHANNEL_IDS");
+    if (env == nullptr || env[0] == '\0') return v;
+    char* str = strdup(env);
+    if (str == nullptr) {
+      WARN("Failed to duplicate RCCL_SUPERNODE_MIX_IB_P2P_CHANNEL_IDS (out of memory), disabling P2P MixIB");
+      return v;
+    }
+    char* save = nullptr;
+    for (char* tok = strtok_r(str, ",", &save); tok != nullptr; tok = strtok_r(nullptr, ",", &save)) {
+      char* end = nullptr;
+      long id = strtol(tok, &end, 10);
+      while (*end == ' ' || *end == '\t') end++;
+      if (end == tok || *end != '\0' || id < 0 || id >= MAXCHANNELS) {
+        WARN("Invalid P2P IB channel id '%s' (must be an integer in [0, %d))", tok, MAXCHANNELS);
+        continue;
+      }
+      v.push_back((int)id);
+    }
+    free(str);
+    return v;
+  }();
+  return ids;
+}
+
+RCCL_PARAM(SuperNodeMixIBCollNChannels, "SUPERNODE_MIX_IB_COLL_NCHANNELS", 0);
+
+// Finalize the MixIB configuration once, after comm->nChannels, comm->p2pnChannels,
+// comm->superNodeMixIBEnable and comm->useSMFree have all been determined. Out-of-range
+// parameters (collective channel count and P2P channel ids) are clamped/dropped with a
+// WARN, and the validated results are stored in comm so transport selection can consult
+// them without re-validating on every channel/peer.
+ncclResult_t ncclValidateMixIbConfig(struct ncclComm* comm) {
+  comm->superNodeMixIBCollNChannels = 0;
+  comm->p2pMixIbNChannels = 0;
+
+  if (comm->superNodeMixIBEnable != 1 || comm->useSMFree) return ncclSuccess;
+
+  // Collective: the last N channels of [0, comm->nChannels) use NET.
+  int collN = (int)rcclParamSuperNodeMixIBCollNChannels();
+  if (collN < 0 || collN > comm->nChannels) {
+    if (collN != 0)
+      WARN("RCCL_SUPERNODE_MIX_IB_COLL_NCHANNELS=%d is outside collective channel range [0, %d]; disabling MixIB for collective channels",
+           collN, comm->nChannels);
+    collN = 0;
+  }
+  comm->superNodeMixIBCollNChannels = collN;
+
+  // P2P: explicit channel ids, each in [0, comm->p2pnChannels). Deduplicated here.
+  const std::vector<int>& ids = p2pIbChannelIds();
+  for (int id : ids) {
+    if (id >= comm->p2pnChannels) {
+      WARN("P2P MixIB channel id %d is outside p2p channel range [0, %d); ignoring it", id, comm->p2pnChannels);
+      continue;
+    }
+    bool dup = false;
+    for (int i = 0; i < comm->p2pMixIbNChannels; i++)
+      if (comm->p2pMixIbChannels[i] == id) { dup = true; break; }
+    if (dup) continue;
+    comm->p2pMixIbChannels[comm->p2pMixIbNChannels++] = id;
+  }
+
+  char p2pList[1024];
+  p2pList[0] = '\0';
+  for (int i = 0; i < comm->p2pMixIbNChannels; i++)
+    snprintf(p2pList + strlen(p2pList), sizeof(p2pList) - strlen(p2pList), "%s%d",
+             i == 0 ? "" : ",", comm->p2pMixIbChannels[i]);
+
+  INFO(NCCL_INIT, "MixIB config finalized: collective NChannels=%d (range [%d,%d)), p2p channels [%s]",
+       comm->superNodeMixIBCollNChannels,
+       comm->nChannels - comm->superNodeMixIBCollNChannels, comm->nChannels,
+       p2pList[0] != '\0' ? p2pList : "(none)");
+
+  return ncclSuccess;
+}
+
+static bool isMixIbNetChannel(struct ncclComm* comm, struct ncclTopoGraph* graph, int channelId, int connIndex) {
+  if (comm->superNodeMixIBEnable != 1 || comm->useSMFree) return false;
+
+  const bool p2pMixIbPath = (graph == NULL && connIndex == 1);
+  if (p2pMixIbPath) {
+    for (int i = 0; i < comm->p2pMixIbNChannels; i++)
+      if (comm->p2pMixIbChannels[i] == channelId) return true;
+    return false;
+  }
+
+  const bool collectiveMixIbPath = (graph != NULL && connIndex == 0);
+  if (collectiveMixIbPath)
+    // exclude NVLS and collNet patterns, which don't use the standard collective channels
+    return graph->collNet == 0 &&
+           graph->pattern != NCCL_TOPO_PATTERN_NVLS &&
+           comm->superNodeMixIBCollNChannels > 0 &&
+           channelId >= comm->nChannels - comm->superNodeMixIBCollNChannels;
+  return false;
+}
 
 template <int type>
 static ncclResult_t selectTransport(struct ncclComm* comm, struct ncclTopoGraph* graph, struct ncclConnect* connect, int channelId, int peer, int connIndex, int* transportType, bool* needsProxy) {
@@ -45,8 +149,24 @@ static ncclResult_t selectTransport(struct ncclComm* comm, struct ncclTopoGraph*
   static const std::vector<int> smfreeIndex = {5, 6};
   const auto& indexArray = (comm->useSMFree && connIndex == 1) ? smfreeIndex : defaultIndex;
 
+  const int mixIbTransport = TRANSPORT_NET;
+  const bool mixIbChannel = isMixIbNetChannel(comm, graph, channelId, connIndex);
+
+  if (mixIbChannel) {
+    const bool hasMixIbTransport = std::find(indexArray.begin(), indexArray.end(), mixIbTransport) != indexArray.end();
+    if (!hasMixIbTransport) {
+      WARN("MixIB channel %d requested transport %d, but the transport is unavailable", channelId, mixIbTransport);
+      return ncclSystemError;
+    }
+    INFO(NCCL_INIT|NCCL_P2P|NCCL_COLL, "%s MixIB channelId %d nChannels %d peer %d connIndex %d transport %d",
+      graph == NULL && connIndex == 1 ? "P2P" : "Collective", channelId,
+      graph == NULL && connIndex == 1 ? comm->p2pnChannels : comm->nChannels,
+      peer, connIndex, mixIbTransport);
+  }
+
   for (int i = 0; i < indexArray.size(); i++) {
     int t = indexArray[i];
+    if (mixIbChannel && t != mixIbTransport) continue;
     if (graph == NULL && connIndex == NCCL_CONN_IDX_P2P_NET && (t == TRANSPORT_SHM || (!xgmi && t == TRANSPORT_P2P))) continue;
     if (graph && n1 >= 0 && n2 >= 0 && t != TRANSPORT_NET) continue;
     struct ncclTransport *transport = ncclTransports[t];
