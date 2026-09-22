@@ -956,8 +956,10 @@ ncclResult_t ncclTopoTrimSystem(struct ncclTopoSystem* system, struct ncclComm* 
 
   comm->localRanks = system->nodes[GPU].count;
   if (system->nodes[GPU].count == comm->nRanks && remove) {
-    for (int n=system->nodes[NET].count-1; n>=0; n--)
-      NCCLCHECKGOTO(ncclTopoRemoveNode(system, NET, n), ret, fail);
+    if (comm->superNodeMixIBEnable != 1) {
+      for (int n=system->nodes[NET].count-1; n>=0; n--)
+        NCCLCHECKGOTO(ncclTopoRemoveNode(system, NET, n), ret, fail);
+    }
   }
 exit:
   free(domains);
