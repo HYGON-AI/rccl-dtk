@@ -2232,7 +2232,8 @@ static ncclResult_t topoGetAlgoInfo(
       if (nc >= 2) nc--;
       else break;
     }
-    rcclOverrideChannels(comm, info->func, nBytes, nc);
+    // If MixIB is enabled for collectives, we bypass the channel thresholds.
+    if (comm->superNodeMixIBCollNChannels == 0) rcclOverrideChannels(comm, info->func, nBytes, nc);
   }
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
 #else
@@ -2358,7 +2359,7 @@ rccl_static ncclResult_t getAlgoInfo(
     }
   }
 
-  info->nMaxChannels = nMaxChannels == 0 ? info->nMaxChannels : nMaxChannels;
+  info->nMaxChannels = std::min<int>(nMaxChannels == 0 ? info->nMaxChannels : nMaxChannels, comm->nChannels);
   return ncclSuccess;
 }
 
@@ -2993,6 +2994,7 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
       // Must be in thread local group before tasks can be alloc'd in `comm->memScoped`.
       ncclGroupCommJoin(info->comm, ncclGroupTaskTypeCollective);
       struct ncclTaskColl* t = ncclMemoryPoolAlloc<struct ncclTaskColl>(&comm->memPool_ncclTaskColl, &comm->memPermanent);
+
       t->func = info->coll;
       t->sendbuff = info->sendbuff;
       t->recvbuff = info->recvbuff;

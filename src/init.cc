@@ -1499,6 +1499,71 @@ static void showVersion() {
   }
 }
 
+// Check if the InfiniBand port is active
+static bool isAvailableIbPort(const char* portPath) {
+  char path[PATH_MAX];
+  char state[16];
+
+  snprintf(path, sizeof(path), "%s/state", portPath);
+  FILE* fp = fopen(path, "r");
+  if (fp == NULL) return false;
+  bool active = fscanf(fp, "%*d: %15s", state) == 1 && strcmp(state, "ACTIVE") == 0;
+  fclose(fp);
+  return active;
+}
+
+// Check if the system has at least 4 active InfiniBand devices
+static bool hasRequiredIbDevices() {
+  static constexpr int requiredIbDeviceCount = 4;
+  const char* ibSysPath = "/sys/class/infiniband";
+  DIR* ibDir = opendir(ibSysPath);
+  if (ibDir == NULL) return false;
+
+  int matchingDeviceCount = 0;
+  struct dirent* deviceEntry;
+  while ((deviceEntry = readdir(ibDir)) != NULL && matchingDeviceCount < requiredIbDeviceCount) {
+    const char* deviceName = deviceEntry->d_name;
+    if (strcmp(deviceName, ".") == 0 || strcmp(deviceName, "..") == 0) continue;
+
+    char portsPath[PATH_MAX];
+    snprintf(portsPath, sizeof(portsPath), "%s/%s/ports", ibSysPath, deviceName);
+    DIR* portsDir = opendir(portsPath);
+    if (portsDir == NULL) continue;
+
+    bool deviceMatches = false;
+    struct dirent* portEntry;
+    while ((portEntry = readdir(portsDir)) != NULL) {
+      const char* portName = portEntry->d_name;
+      if (strcmp(portName, ".") == 0 || strcmp(portName, "..") == 0) continue;
+
+      char portPath[PATH_MAX];
+      snprintf(portPath, sizeof(portPath), "%s/%s", portsPath, portName);
+      if (isAvailableIbPort(portPath)) {
+        deviceMatches = true;
+        break;
+      }
+    }
+    closedir(portsDir);
+
+    if (deviceMatches) matchingDeviceCount++;
+  }
+  closedir(ibDir);
+  return matchingDeviceCount >= requiredIbDeviceCount;
+}
+
+RCCL_PARAM(SuperNodeMixIBEnable, "SUPERNODE_MIX_IB_ENABLE", 0);
+
+static int8_t IsSuperNodeMixIBEnable() {
+  if (rcclParamSuperNodeMixIBEnable() != 1) {
+    return 0;
+  }
+  if (!hasRequiredIbDevices()) {
+    INFO(NCCL_INIT, "SuperNodeMixIB is not available due to insufficient active InfiniBand devices.");
+    return 0;
+  }
+  return 1;
+}
+
 NCCL_PARAM(MNNVLUUID, "MNNVL_UUID", -1);
 NCCL_PARAM(MNNVLCliqueId, "MNNVL_CLIQUE_ID", -1);
 
@@ -1552,6 +1617,7 @@ static ncclResult_t fillInfo(struct ncclComm* comm, struct ncclPeerInfo* info, u
   info->comm = comm;
   info->cudaCompCap = comm->minCompCap = comm->maxCompCap = comm->compCap;
 
+  info->superNodeMixIBAvailable = IsSuperNodeMixIBEnable();
 #if !defined(__HIP_PLATFORM_AMD__) && !defined(__HIPCC__)
   // MNNVL support
   {
@@ -1942,6 +2008,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
 
   comm->cuMemSupport = 1;
   comm->isSuperNode = true;
+  comm->superNodeMixIBEnable = comm->peerInfo[rank].superNodeMixIBAvailable;
   for (int i = 0; i < nranks; i++) {
     if (comm->peerInfo[i].version != comm->peerInfo[rank].version) {
       WARN("Mismatched NCCL version detected : rank %d version %d rank %d version %d",
@@ -1958,13 +2025,24 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
     }
     // check if all peers have uniqueId in topo, if not it is not a supernode system;
     if (comm->isSuperNode && !isUniqueidInTopo(comm->peerInfo[i].uniqueId)) comm->isSuperNode = false;
+
+    // check if all peers have superNodeMixIBAvailable
+    if (comm->peerInfo[i].superNodeMixIBAvailable != 1) comm->superNodeMixIBEnable = 0;
   }
   // 当超节点环境且cuMem支持时，使用fabric handle进行通信
   if(comm->isSuperNode && comm->cuMemSupport) {
     ncclCuMemHandleType = CU_MEM_HANDLE_TYPE_FABRIC;
     INFO(NCCL_INIT, "Using HIP Mem Handle Type Fabric for supernode communication");
   }
-  INFO(NCCL_INIT, "rank %d/%d, cuMemSupport %d, isSuperNode %d, cuMemHandleType %s", rank, nranks, comm->cuMemSupport, comm->isSuperNode, ncclCuMemHandleType == CU_MEM_HANDLE_TYPE_FABRIC ? "Fabric" : "Default");
+
+  // 非超节点环境下，禁用SuperNodeMixIB
+  if(comm->superNodeMixIBEnable && !comm->isSuperNode) {
+    INFO(NCCL_INIT, "SuperNodeMixIB is enabled but the system is not a supernode, disabling SuperNodeMixIB");
+    comm->superNodeMixIBEnable = 0;
+  }
+
+  INFO(NCCL_INIT, "rank %d/%d, cuMemSupport %d, isSuperNode %d, cuMemHandleType %s, comm->superNodeMixIBEnable %d",
+    rank, nranks, comm->cuMemSupport, comm->isSuperNode, ncclCuMemHandleType == CU_MEM_HANDLE_TYPE_FABRIC ? "Fabric" : "Default", comm->superNodeMixIBEnable);
 
   // AllGather1 - end
   timers[TIMER_INIT_ALLGATHER] = clockNano() - timers[TIMER_INIT_ALLGATHER];
@@ -2464,9 +2542,15 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
 
   // Compute nChannels per peer for p2p
   NCCLCHECKGOTO(ncclTopoComputeP2pChannels(comm), ret, fail);
+  // Finalize MixIB parameters (collective channel count and P2P channel ids) after
+  // comm->nChannels, comm->p2pnChannels, comm->superNodeMixIBEnable and comm->useSMFree are known.
+  NCCLCHECKGOTO(ncclValidateMixIbConfig(comm), ret, fail);
   comm->CollSimpleChannels = comm->nChannels;
   // set Simple nChannels to rcclParamCollSimpleChannels() when gcn=gfx936
-  if(IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") || (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") && comm->isSuperNode)){
+  if (comm->superNodeMixIBCollNChannels == 0 &&
+      (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx936") ||
+      (IsArchMatch(comm->topo->nodes[GPU].nodes[0].gpu.gcn, "gfx938") &&
+      comm->isSuperNode))){
     int CollSimpleChannels = rcclParamCollSimpleChannels() != -2 ? rcclParamCollSimpleChannels() : (comm->nNodes == 1 && comm->nRanks <= 4) ? 32 : 16;
     if(CollSimpleChannels <= comm->nChannels && CollSimpleChannels > 0) comm->CollSimpleChannels = CollSimpleChannels;
   }
