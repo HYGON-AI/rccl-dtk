@@ -2709,21 +2709,23 @@ bool isHylinkMixPCIe(struct ncclTopoSystem* system){
 }
 
 bool is4GpuHylink(){
+#ifdef RSMI_SUPPORT_XHCL_TOPO
   uint32_t gpuCount;
   uint32_t linkNum, linkState;
   uint32_t hyLinkMaxGroupId = 0;
-  NCCLCHECK(rocm_smi_getNumDevice(&gpuCount));
+  ncclResult_t res = ncclSuccess;
+  NCCLCHECKGOTO(rocm_smi_getNumDevice(&gpuCount), res, fail);
 
   for (int rocmDev = 0; rocmDev < gpuCount; rocmDev++) {
     // linkNum may be 0 when no hylink
-    NCCLCHECK(rocm_smi_dev_xhcl_link_number_get(rocmDev, &linkNum));
+    NCCLCHECKGOTO(rocm_smi_dev_xhcl_link_number_get(rocmDev, &linkNum), res, fail);
     if(linkNum <= 0) {
       // no hylink
       break;
     }
     // get max group id
     // linkState may be 0 when no hylink, otherwise is group id of link
-    NCCLCHECK(rocm_smi_dev_xhcl_link_state_get(rocmDev, 0, &linkState));
+    NCCLCHECKGOTO(rocm_smi_dev_xhcl_link_state_get(rocmDev, 0, &linkState), res, fail);
     if (linkState <= 0) {
       // no hylink
       break;
@@ -2737,6 +2739,13 @@ bool is4GpuHylink(){
     return false;
   }
     
+fail:
+  return false;
+#else
+  /* The XHCL topology API is compiled out (SUPPORT_XHCL_TOPO=OFF), hylink
+   * cannot be detected: report "not a 4-GPU hylink". */
+  return false;
+#endif
 }
 
 bool isHSW(struct ncclTopoSystem* system){
