@@ -258,9 +258,9 @@ if (rocm_smi_FOUND)
   message(STATUS "Found rocm_smi at ${ROCM_SMI_INCLUDE_DIR}")
 else()
   message(STATUS "Checking old include directory structure for rocm_smi")
+  # Only the include directory is needed: src/misc/rocm_smi_wrap.cc dlopen()s
+  # librocm_smi64 at runtime (RCCL_ROCM_SMI_LIB overrides the name).
   set(ROCM_SMI_INCLUDE_DIR "${ROCM_PATH}/rocm_smi/include")
-  set(ROCM_SMI_LIB_DIR     "${ROCM_PATH}/rocm_smi/lib")
-  set(ROCM_SMI_LIBRARIES   rocm_smi64)
 endif()
 check_include_file_cxx("${ROCM_SMI_INCLUDE_DIR}/rocm_smi/rocm_smi64Config.h" HAVE_ROCM_SMI64CONFIG)
 ### Check for RSMI_INIT_FLAG_THRAD_ONLY_MUTEX support
@@ -1285,9 +1285,6 @@ if(SUPPORT_SOFT_TIO)
   target_compile_definitions(rccl PRIVATE SOFT_TIO)
 endif()
 
-## Set RCCL linked library directories
-target_link_directories(rccl PRIVATE ${ROCM_SMI_LIB_DIR})
-
 ############################
 # ROCPROFILER_REGISTER
 ############################
@@ -1324,7 +1321,6 @@ target_link_libraries(rccl PRIVATE   Threads::Threads)
 target_link_libraries(rccl INTERFACE hip::host)
 target_link_libraries(rccl PRIVATE   hip::device)
 target_link_libraries(rccl PRIVATE   dl)
-target_link_libraries(rccl PRIVATE   ${ROCM_SMI_LIBRARIES})
 # target_link_libraries(rccl PRIVATE fmt::fmt-header-only)
 if(ENABLE_MSCCLPP)
   target_link_libraries(rccl PRIVATE mscclpp_nccl)
