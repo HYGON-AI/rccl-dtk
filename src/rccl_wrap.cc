@@ -24,7 +24,7 @@ THE SOFTWARE.
 #include "comm.h"
 #include "graph/topo.h"
 #include "enqueue.h"
-#include "rocm_smi/rocm_smi.h"
+#include "rocm_smi_wrap.h"
 #include <algorithm>
 // Use this param to experiment pipelining new data types besides bfloat16
 // Make sure you generate the device code with the new data type (i.e. in generate.py)
@@ -493,11 +493,7 @@ int parseFirmwareVersionImpl() {
 
   // using rocm-smi APIs for now to query MEC FW version
   // will switch to amd-smi APIs soon
-  rsmi_status_t ret;
-  ret = rsmi_init(0);
-  if (ret != RSMI_STATUS_SUCCESS) return -1;
-  ret = rsmi_dev_firmware_version_get(0, RSMI_FW_BLOCK_MEC, &fw_version);
-  if (ret != RSMI_STATUS_SUCCESS) return -1;
+  if (rocm_smi_getFirmwareVersion(0, &fw_version) != ncclSuccess) return -1;
 
   return fw_version;
 }
