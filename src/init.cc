@@ -1755,10 +1755,10 @@ ncclResult_t getHwLinkTopo(struct ncclComm* comm)
   uint32_t linkNum = 0;
   uint32_t linkState = 0;
   uint64_t pciBdf = 0;
-  RSMI_XHCL_LINK_TYPE devType;
 
   comm->linkTopoType = HCU_LINK_MODE_NON;
 #ifdef RSMI_SUPPORT_XHCL_TOPO
+  RSMI_XHCL_LINK_TYPE devType;
   NCCLCHECK(rocm_smi_getNumDevice(&deviceCnt));
   for (int dev = 0; dev < deviceCnt; dev++) {
     NCCLCHECK(rocm_smi_dev_xhcl_link_number_get(dev, &linkNum));

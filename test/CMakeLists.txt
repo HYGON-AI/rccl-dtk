@@ -199,11 +199,10 @@ if(BUILD_TESTS)
       endif()
     else()
       add_dependencies(${test_executable} rccl)
-      target_link_libraries(${test_executable} PRIVATE dl rt numa -lrccl -L${CMAKE_BINARY_DIR} -lrocm_smi64 -L${ROCM_PATH}/lib -L${ROCM_PATH}/rocm_smi/lib)
+      target_link_libraries(${test_executable} PRIVATE dl rt numa -lrccl -L${CMAKE_BINARY_DIR} -L${ROCM_PATH}/lib)
     endif()
 
     rocm_install(TARGETS ${test_executable} COMPONENT tests)
   endforeach()
 
 endif()
-
