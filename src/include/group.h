@@ -109,6 +109,7 @@ inline void ncclGroupCommJoin(struct ncclComm* comm, int type) {
       ncclKernelPlanner::Peer* tmp = comm->planner.peers;
       memset(&comm->planner, 0, sizeof(comm->planner));
       comm->planner.peers = tmp;
+      comm->planner.p2pConnIndex = 1;
     }
   }
   ncclGroupBlocking = comm->config.blocking;

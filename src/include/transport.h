@@ -47,7 +47,7 @@ struct ncclRing;
 struct ncclConnector;
 struct ncclComm;
 
-#define CHANNEL_MASK_OFFSET(nranks, connIndex) (nranks * (connIndex == NCCL_CONN_IDX_P2P_NET ? NCCL_CONN_IDX_P2P_NET : 0))
+#define CHANNEL_MASK_OFFSET(nranks, connIndex) (nranks * (connIndex >= 2 ? connIndex : 0))
 #define CONNECT_SIZE 1024
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
 #define NCCL_MAX_PAGE_SIZE (512L * 1024L)

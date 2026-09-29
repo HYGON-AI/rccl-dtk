@@ -1579,8 +1579,7 @@ ncclResult_t getLocalNetCountByBw(struct ncclTopoSystem* system, int gpu, int *c
   return ncclSuccess;
 }
 
-RCCL_PARAM(UseAllLocalNet, "USE_ALL_LOCALNET", 1);
-ncclResult_t ncclTopoGetLocalNet(struct ncclTopoSystem* system, int rank, int channelId, int64_t* id, int* dev) {
+ncclResult_t ncclTopoGetLocalNet(struct ncclTopoSystem* system, int rank, int channelId, int64_t* id, int* dev, int connIndex) {
   int gpu;
   NCCLCHECK(ncclTopoRankToIndex(system, rank, &gpu, /*showWarn=*/true));
 
@@ -1601,14 +1600,14 @@ ncclResult_t ncclTopoGetLocalNet(struct ncclTopoSystem* system, int rank, int ch
   int net = system->nodes[GPU].nodes[gpu].gpu.dev;
   if (isPow2(localNetCount)) net = mirrorBits(net, localNetCount);
   int localNetChoices = DIVUP(localNetCount,localGpuCount);
-  if (rcclParamUseAllLocalNet()) localNetChoices = localNetCount;
+  if (connIndex == NCCL_CONN_IDX_P2P_GATHER_SCATTER) localNetChoices = localNetCount;
   net += channelId%localNetChoices;
   if (id) *id = system->nodes[NET].nodes[localNets[net%localNetCount]].id;
   if (dev) *dev = system->nodes[NET].nodes[localNets[net%localNetCount]].net.dev;
   return ncclSuccess;
 }
 
-ncclResult_t ncclTopoGetLocalGpuForGPUBalance(struct ncclTopoSystem* system, int rank, int localRank, int channelId, int* gpuIndex) {
+ncclResult_t ncclTopoGetLocalGpuForGPUBalance(struct ncclTopoSystem* system, int rank, int localRank, int channelId, int* gpuIndex, int connIndex) {
   ncclResult_t ret = ncclSuccess;
   int64_t netId = -1;
   int netDev = -1;
@@ -1620,10 +1619,10 @@ ncclResult_t ncclTopoGetLocalGpuForGPUBalance(struct ncclTopoSystem* system, int
   int g_tmp;
 
   // Step 1: 获取当前 rank 的 net 及关联 GPU 列表
-  ret = ncclTopoGetLocalNet(system, rank, channelId, &netId, &netDev);
+  ret = ncclTopoGetLocalNet(system, rank, channelId, &netId, &netDev, connIndex);
   if (ret != ncclSuccess) goto cleanup;
 
-  ret = ncclTopoGetLocalGpu(system, netId, &g_tmp, &rankGetLocalGpus, &rankGetlocalGpuCount);
+  ret = ncclTopoGetLocalGpu(system, netId, &g_tmp, &rankGetLocalGpus, &rankGetlocalGpuCount, connIndex);
   if (ret != ncclSuccess) goto cleanup;
 
   // 查找当前 rank 在列表中的索引
@@ -1641,10 +1640,10 @@ ncclResult_t ncclTopoGetLocalGpuForGPUBalance(struct ncclTopoSystem* system, int
   }
 
   // Step 2: 获取 peer localRank 的 net 及关联 GPU 列表
-  ret = ncclTopoGetLocalNet(system, localRank, channelId, &netId, &netDev);
+  ret = ncclTopoGetLocalNet(system, localRank, channelId, &netId, &netDev, connIndex);
   if (ret != ncclSuccess) goto cleanup;
 
-  ret = ncclTopoGetLocalGpu(system, netId, &g_tmp, &localRankGetlocalGpus, &localRankGetlocalGpuCount);
+  ret = ncclTopoGetLocalGpu(system, netId, &g_tmp, &localRankGetlocalGpus, &localRankGetlocalGpuCount, connIndex);
   if (ret != ncclSuccess) goto cleanup;
 
   // Step 3: 映射索引，得到最终 GPU，增加空指针保护
@@ -1665,7 +1664,7 @@ cleanup:
   return ret;
 }
 
-ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex, int** gpus, int* gpuCount) {
+ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex, int** gpus, int* gpuCount, int connIndex) {
   ncclResult_t ret = ncclSuccess;
   int netIndex;
   NCCLCHECK(ncclTopoIdToIndex(system, NET, netId, &netIndex));
@@ -1679,7 +1678,7 @@ ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, i
       int g = localGpus[lg];
       struct ncclTopoNode* gpu = system->nodes[GPU].nodes+g;
       int64_t id;
-      NCCLCHECK(ncclTopoGetLocalNet(system, gpu->gpu.rank, c, &id, NULL));
+      NCCLCHECK(ncclTopoGetLocalNet(system, gpu->gpu.rank, c, &id, NULL, connIndex));
       if (netId == id) {
         *gpuIndex = g;
         if (gpus) {

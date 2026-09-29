@@ -398,6 +398,7 @@ struct ncclKernelPlanner {
   struct ncclTaskCollSorter collSorter;
   struct Peer* peers/*[nRanks]*/;
   int nTasksColl, nTasksP2p;
+  int p2pConnIndex;
   bool persistent;
   bool isSymColl;
 
