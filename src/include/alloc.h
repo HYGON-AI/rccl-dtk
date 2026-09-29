@@ -448,7 +448,11 @@ ncclResult_t ncclCudaCallocDebug(const char *filefunc, int line, T** ptr, size_t
   } else {
 #if defined(HIP_UNCACHED_XDP_MEMORY)
     if (flags == hipDeviceMallocUncachedXdp) {
-      CUDACHECKGOTO(hipExtMallocWithFlags((void**)ptr, nelem*ncclSizeOfT<T>(), flags), result, finish);
+      if (hipExtMallocWithFlags((void**)ptr, nelem*ncclSizeOfT<T>(), flags) != cudaSuccess) {
+        *ptr = nullptr;
+        WARN("Failed to alloc xdp mem size %ld", nelem*ncclSizeOfT<T>());
+        return ncclSuccess;
+      };
       INFO(NCCL_ALLOC, "%s:%d Alloc xdp mem size %ld pointer %p", filefunc, line, nelem*ncclSizeOfT<T>(), *ptr);
     } else {
       CUDACHECKGOTO(hipExtMallocWithFlags((void**)ptr, nelem*ncclSizeOfT<T>(), flags), result, finish);
