@@ -135,7 +135,7 @@ static bool checkXhclMemChannel(struct ncclComm* comm, int connIndex, int channe
 
   if (connIndex == 0) {
     return channelId < collXhclChannelNum;
-  }else if (connIndex == 1) {
+  } else if (connIndex == 1 || connIndex == NCCL_CONN_IDX_P2P_GATHER_SCATTER) {
     return channelId < p2pXhclChannelNum;
   }
   

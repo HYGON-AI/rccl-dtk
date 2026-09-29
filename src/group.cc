@@ -148,6 +148,7 @@ struct ncclPreconnectJob {
   struct ncclAsyncJob base;
   struct ncclComm* comm;
   bool* algoNeedConnect;
+  int p2pConnIndex;
 };
 
 ncclResult_t ncclP2PPreconnectFunc(struct ncclAsyncJob* job_) {
@@ -155,7 +156,7 @@ ncclResult_t ncclP2PPreconnectFunc(struct ncclAsyncJob* job_) {
   struct ncclComm* comm = job->comm;
   CUDACHECK(cudaSetDevice(comm->cudaDev));
   if (CPU_COUNT(&comm->cpuAffinity)) sched_setaffinity(0, sizeof(cpu_set_t), &comm->cpuAffinity);
-  NCCLCHECK(ncclTransportP2pSetup(comm, NULL, 1));
+  NCCLCHECK(ncclTransportP2pSetup(comm, NULL, job->p2pConnIndex));
   if (comm->p2pNet) NCCLCHECK(ncclTransportP2pSetup(comm, NULL, NCCL_CONN_IDX_P2P_NET));
   return ncclSuccess;
 }
@@ -369,12 +370,9 @@ static void groupCleanup(struct ncclComm** groupCommHeadPtr, struct ncclIntruQue
       // is needed.
       if (type == ncclGroupTaskTypeCollective) {
         comm->preconnectNext = reinterpret_cast<struct ncclComm*>(0x1);
-        for (int i = 0; i < comm->nRanks; i++) {
-          for (int j = 0; j < MAXCHANNELS/64; j++) {
-            comm->connectSend[i].masks[j] = 0UL;
-            comm->connectRecv[i].masks[j] = 0UL;
-          }
-        }
+        const size_t nMaskEntries = size_t(comm->nRanks) * NCCL_MAX_CONNS;
+        memset(comm->connectSend, 0, nMaskEntries * sizeof(*comm->connectSend));
+        memset(comm->connectRecv, 0, nMaskEntries * sizeof(*comm->connectRecv));
         // Reclaim abandoned kernel plan memory. Note ncclWork structs were already
         // reclaimed by a `ncclMemoryStackPop(&comm->memScoped)` during `ncclGroupCommLeave()`.
         while (!ncclIntruQueueEmpty(&comm->planner.planQueue)) {
@@ -394,6 +392,7 @@ static void groupCleanup(struct ncclComm** groupCommHeadPtr, struct ncclIntruQue
           ncclKernelPlanner::Peer* tmp = comm->planner.peers;
           memset(&comm->planner, 0, sizeof(comm->planner));
           comm->planner.peers = tmp;
+          comm->planner.p2pConnIndex = 1;
           if (comm->planner.peers != NULL) memset(comm->planner.peers, 0, comm->nRanks * sizeof(comm->planner.peers[0]));
         }
       }
@@ -503,6 +502,7 @@ static ncclResult_t groupLaunch(struct ncclAsyncJob *job_, ncclSimInfo_t* simInf
       job->base.abortFlag = comm->abortFlag;
       job->base.abortFlagDev = comm->abortFlagDev;
       job->comm = comm;
+      job->p2pConnIndex = comm->planner.p2pConnIndex;
       ncclIntruQueueEnqueue(asyncJobsMain,  (struct ncclAsyncJob*)job);
 
       struct ncclComm* next = comm->preconnectNext;

@@ -1373,7 +1373,7 @@ fail:
 // 0: don't use PXN for P2P, 1: use PXN if needed, 2: use PXN as much as possible to maximize aggregation
 NCCL_PARAM(P2pPxnLevel, "P2P_PXN_LEVEL", 2);
 
-ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank) {
+ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank, int connIndex) {
   int64_t netId = -1;
   int netDev = -1;
   if (graph && (comm->superNodeMixIBEnable != 1 || peerRank == -1)) {
@@ -1394,7 +1394,7 @@ ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoG
     return ncclInternalError;
   } else {
     // Start with our local NIC and local Rank
-    NCCLCHECK(ncclTopoGetLocalNet(comm->topo, rank, channelId, &netId, &netDev));
+    NCCLCHECK(ncclTopoGetLocalNet(comm->topo, rank, channelId, &netId, &netDev, connIndex));
     if (dev) *dev = netDev;
     if (id) *id = netId;
     *proxyRank = rank;
@@ -1406,7 +1406,7 @@ ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoG
       int nvmlDev = comm->peerInfo[peerRank].nvmlDev;
       int localRank;
       if (ncclTopoDevToRank(comm->topo, nvmlDev, &localRank) != ncclSuccess) return ncclSuccess;
-      NCCLCHECK(ncclTopoGetLocalNet(comm->topo, localRank, channelId, &netId, &netDev));
+      NCCLCHECK(ncclTopoGetLocalNet(comm->topo, localRank, channelId, &netId, &netDev, connIndex));
 
       // Check that device exists on our node
       if (ncclParamCrossNic() == 0) {
@@ -1433,13 +1433,13 @@ ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoG
         if (loadbalancingType != NULL) {
           INFO(NCCL_ENV, "RCCL_PXN_GPU_BALANCE set by environment to %s.", loadbalancingType);
           if (strcmp(loadbalancingType, "1") == 0) {   // new GPU Balancing + netTransport->send/recvSetup() / ncclTopoGetPxnRanks()
-            NCCLCHECK(ncclTopoGetLocalGpuForGPUBalance(comm->topo, rank, localRank, channelId, &g2));
+            NCCLCHECK(ncclTopoGetLocalGpuForGPUBalance(comm->topo, rank, localRank, channelId, &g2, connIndex));
           } else {   // default
             goto default_loadbalancing;
           }
         } else {  // default
 default_loadbalancing:
-        NCCLCHECK(ncclTopoGetLocalGpu(comm->topo, netId, &g2));
+        NCCLCHECK(ncclTopoGetLocalGpu(comm->topo, netId, &g2, NULL, NULL, connIndex));
         }
         if (g2 != -1) {
           struct ncclTopoNode* peerGpu = comm->topo->nodes[GPU].nodes+g2;
@@ -1502,7 +1502,7 @@ ret:
   return ncclSuccess;
 }
 
-ncclResult_t ncclTopoGetLocalNetDevForSamePlane(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank) {
+ncclResult_t ncclTopoGetLocalNetDevForSamePlane(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank, int connIndex) {
   int64_t netId = -1;
   int netDev = -1;
   if (NULL == proxyRank) {
@@ -1526,7 +1526,7 @@ ncclResult_t ncclTopoGetLocalNetDevForSamePlane(struct ncclComm* comm, int rank,
     return ncclInternalError;
   } else {
     // Start with our local NIC and local Rank
-    NCCLCHECK(ncclTopoGetLocalNet(comm->topo, rank, channelId, &netId, &netDev));
+    NCCLCHECK(ncclTopoGetLocalNet(comm->topo, rank, channelId, &netId, &netDev, connIndex));
     if (dev) *dev = netDev;
     if (id) *id = netId;
     *proxyRank = rank;
