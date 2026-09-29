@@ -320,7 +320,7 @@ static void finishPlan(struct ncclComm* comm, struct ncclKernelPlan* plan) {
     headIds[c] = opNext ? opNext->opCount : uint64_t(-1);
     nHeads -= opNext ? 0 : 1;
     ncclIntruQueueEnqueue(&plan->proxyOpQueue, op);
-    if (comm->useSMFree && (op->connIndex == 1)) { 
+    if (comm->useSMFree && (op->connIndex == 1 || op->connIndex == NCCL_CONN_IDX_P2P_GATHER_SCATTER)) {
       proxyOpCnt += 1;
     }
   }
@@ -985,7 +985,7 @@ static ncclResult_t addP2pToPlan(
     uint64_t sendOpCount, uint64_t recvOpCount,
     struct ncclTaskP2p** p2pTasks
   ) {
-  int connIndex[2] = {1, 1};
+  int connIndex[2] = {comm->planner.p2pConnIndex, comm->planner.p2pConnIndex};
   bool selfSend = (sendRank == comm->rank);
   // recv: dir=0, send: dir=1
   void* addrs[2] = {recvAddr, sendAddr};
@@ -2856,6 +2856,7 @@ static void getSuperNodeP2pPerPeerChannels(struct ncclComm* comm, ncclP2pInfo_t 
   comm->devComm->p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
 }
 
+RCCL_PARAM(P2pGatherScatterUseAllLocalNet, "P2P_GATHER_SCATTER_USE_ALL_LOCALNET", 1);
 // Converts `info` to a task and adds it to `comm->planner`. The exception is with
 // single rank communicators, collectives are issued as `ncclMemcpyAsync`s and
 // thus don't need a task.
@@ -2883,6 +2884,17 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
       isSendNotRecv ? &planner->peers[peer].sendQueue : &planner->peers[peer].recvQueue,
       p2p);
     planner->nTasksP2p += 1;
+
+    if (planner->nTasksP2p == 1) {
+      ncclP2pInfo_t parentP2pType = currentParentP2p();
+      if (rcclParamP2pGatherScatterUseAllLocalNet() && comm->nNodes > 1 && !comm->isSuperNode && (parentP2pType == P2pGather || parentP2pType == P2pScatter)) {
+        planner->p2pConnIndex = NCCL_CONN_IDX_P2P_GATHER_SCATTER;
+      } else {
+        planner->p2pConnIndex = 1;
+      }
+      INFO(NCCL_VERBS, "rank %d: first P2P in group parentP2pType=%d, selected p2pConnIndex=%d", comm->rank, parentP2pType, planner->p2pConnIndex);
+    }
+
     if (comm->autoPerPeerOn) {
       p2p->parentP2pType = currentParentP2p();
       if (planner->nTasksP2p == 1) {
@@ -2973,32 +2985,28 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
         for (int c=0; c < comm->p2pnChannelsPerPeer; c++) {
           int channelId = ncclP2pChannelForPart(comm->p2pnChannels, base, c, comm->p2pnChannelsPerPeer, comm->nNodes);
           if (isSendNotRecv) {
-            if (comm->channels[channelId].peers[peer]->send[1].hasSeen == 0) { // P2P uses only 1 connector
+            if (comm->channels[channelId].peers[peer]->send[planner->p2pConnIndex].hasSeen == 0) {
               // the send/recv connector is shared among split shared comms. We need to set hasSeen to
               // 1 in order to avoid duplicate connection setup if user group sendrecv ops with split
               // shared comms together.
-              comm->channels[channelId].peers[peer]->send[1].hasSeen = 1;
-              //comm->connectSend[peer] |= (1UL<<channelId);
-	            comm->connectSend[peer].masks[channelId/64] |= (1UL<<(channelId%64));
+              comm->channels[channelId].peers[peer]->send[planner->p2pConnIndex].hasSeen = 1;
+              comm->connectSend[peer+CHANNEL_MASK_OFFSET(comm->nRanks, planner->p2pConnIndex)].masks[channelId/64] |= (1UL << (channelId%64));
               ncclGroupCommPreconnect(comm);
             }
             if (comm->p2pNet && comm->channels[channelId].peers[peer]->send[NCCL_CONN_IDX_P2P_NET].hasSeen == 0) {
-              comm->channels[channelId].peers[peer]->send[1].hasSeen = 1;
-              //comm->connectSend[peer+comm->nRanks*NCCL_CONN_IDX_P2P_NET] |= (1UL<<channelId);
-	            comm->connectSend[peer+comm->nRanks*NCCL_CONN_IDX_P2P_NET].masks[channelId/64] |= (1UL<<(channelId%64));
+              comm->channels[channelId].peers[peer]->send[NCCL_CONN_IDX_P2P_NET].hasSeen = 1;
+              comm->connectSend[peer+CHANNEL_MASK_OFFSET(comm->nRanks, NCCL_CONN_IDX_P2P_NET)].masks[channelId/64] |= (1UL<<(channelId%64));
               ncclGroupCommPreconnect(comm);
             }
           } else {
-            if (comm->channels[channelId].peers[peer]->recv[1].hasSeen == 0) { // P2P uses only 1 connector
-              comm->channels[channelId].peers[peer]->recv[1].hasSeen = 1;
-              //comm->connectRecv[peer] |= (1UL<<channelId);
-	            comm->connectRecv[peer].masks[channelId/64] |= (1UL<<(channelId%64));
+            if (comm->channels[channelId].peers[peer]->recv[planner->p2pConnIndex].hasSeen == 0) {
+              comm->channels[channelId].peers[peer]->recv[planner->p2pConnIndex].hasSeen = 1;
+              comm->connectRecv[peer+CHANNEL_MASK_OFFSET(comm->nRanks, planner->p2pConnIndex)].masks[channelId/64] |= (1UL << (channelId%64));
               ncclGroupCommPreconnect(comm);
             }
             if (comm->p2pNet && comm->channels[channelId].peers[peer]->recv[NCCL_CONN_IDX_P2P_NET].hasSeen == 0) {
-              comm->channels[channelId].peers[peer]->recv[1].hasSeen = 1;
-              //comm->connectRecv[peer+comm->nRanks*NCCL_CONN_IDX_P2P_NET] |= (1UL<<channelId);
-	            comm->connectRecv[peer+comm->nRanks*NCCL_CONN_IDX_P2P_NET].masks[channelId/64] |= (1UL<<(channelId%64));
+              comm->channels[channelId].peers[peer]->recv[NCCL_CONN_IDX_P2P_NET].hasSeen = 1;
+              comm->connectRecv[peer+CHANNEL_MASK_OFFSET(comm->nRanks, NCCL_CONN_IDX_P2P_NET)].masks[channelId/64] |= (1UL<<(channelId%64));
               ncclGroupCommPreconnect(comm);
             }
           }

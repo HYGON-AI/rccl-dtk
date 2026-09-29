@@ -34,9 +34,9 @@ int ncclTopoPathAnyNVLink(struct ncclTopoSystem* system);
 ncclResult_t ncclTopoComputeCommCPU(struct ncclComm* comm);
 
 // Query topology
-ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank);
+ncclResult_t ncclTopoGetNetDev(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank, int connIndex = 0);
 ncclResult_t ncclTopoNetPlaneCheck(struct ncclComm* comm, int *same, int myRank, int peerRank);
-ncclResult_t ncclTopoGetLocalNetDevForSamePlane(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank);
+ncclResult_t ncclTopoGetLocalNetDevForSamePlane(struct ncclComm* comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank, int connIndex = 0);
 
 ncclResult_t ncclTopoCheckP2p(struct ncclComm* comm, struct ncclTopoSystem* system, int rank1, int rank2, int* p2p, int *read, int* intermediateRank);
 ncclResult_t ncclTopoCheckMNNVL(struct ncclTopoSystem* system, struct ncclPeerInfo* info1, struct ncclPeerInfo* info2, int* ret);
@@ -82,9 +82,9 @@ ncclResult_t ncclTopoCpuType(struct ncclTopoSystem* system, int* arch, int* vend
 ncclResult_t ncclTopoGetGpuCount(struct ncclTopoSystem* system, int* count);
 ncclResult_t ncclTopoGetNetCount(struct ncclTopoSystem* system, int* count);
 ncclResult_t ncclTopoGetNvsCount(struct ncclTopoSystem* system, int* count);
-ncclResult_t ncclTopoGetLocalNet(struct ncclTopoSystem* system, int rank, int channelId, int64_t* id, int* dev);
-ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex, int** gpus = NULL, int* gpuCount = 0);
-ncclResult_t ncclTopoGetLocalGpuForGPUBalance(struct ncclTopoSystem* system, int rank, int localRank, int channelId, int* gpuIndex);
+ncclResult_t ncclTopoGetLocalNet(struct ncclTopoSystem* system, int rank, int channelId, int64_t* id, int* dev, int connIndex = 0);
+ncclResult_t ncclTopoGetLocalGpu(struct ncclTopoSystem* system, int64_t netId, int* gpuIndex, int** gpus = NULL, int* gpuCount = 0, int connIndex = 0);
+ncclResult_t ncclTopoGetLocalGpuForGPUBalance(struct ncclTopoSystem* system, int rank, int localRank, int channelId, int* gpuIndex, int connIndex = 0);
 ncclResult_t getLocalNetCountByBw(struct ncclTopoSystem* system, int gpu, int *count);
 
 // Allows for up to 32 NICs per node on GB200-NVL72
