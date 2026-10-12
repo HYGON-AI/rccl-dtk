@@ -2972,7 +2972,8 @@ static ncclResult_t taskAppend(struct ncclComm* comm, struct ncclInfo* info) {
     }
     // Mark channels that need pre-connect
     if (comm->rank != peer) {
-      uint64_t& seenMask = isSendNotRecv ? planner->peers[peer].sendSeenMask : planner->peers[peer].recvSeenMask;
+      uint64_t& seenMask = isSendNotRecv ? planner->peers[peer].sendSeenMask[planner->p2pConnIndex - 1]
+                                         : planner->peers[peer].recvSeenMask[planner->p2pConnIndex - 1];
       uint64_t bit = 1ULL << (comm->p2pnChannelsPerPeer - 1);
       if ((seenMask & bit) == 0) {
         seenMask |= bit;
