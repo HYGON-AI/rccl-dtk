@@ -71,5 +71,6 @@ ncclResult_t ncclIpcDeregBuffer(struct ncclComm* comm, struct ncclIpcRegInfo* re
 ncclResult_t psmIpcDeregBuffer(struct ncclComm* comm, struct ncclIpcRegInfo* regInfo);
 
 bool isUniqueidInTopo(const char *uniqueId);
+bool isHswInterConnect(struct ncclPeerInfo* info1, struct ncclPeerInfo* info2);
 
 #endif

@@ -15,6 +15,7 @@
 #include "device.h"
 #include "xml.h"
 #include "rome_models.h"
+#include "p2p.h"
 
 // Pre-compute GPU->NIC, GPU->GPU and NIC->GPU paths
 
@@ -289,9 +290,13 @@ ncclResult_t ncclTopoCheckP2p(struct ncclComm* comm, struct ncclTopoSystem* syst
       if (comm->MNNVL) {
         NCCLCHECK(ncclTopoCheckMNNVL(comm->topo, info1, info2, &mnnvl));
         if (!mnnvl) return ncclSuccess;
+#if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
+      } else if(comm->isSuperNode && isHswInterConnect(info1,info2)){
+        // Continue with the fused HSW topology path check below.
+#endif
       } else {
         return ncclSuccess;
-      }
+      }  
     } else if (info1->shmDev != info2->shmDev) {
       return ncclSuccess;
     }
@@ -736,6 +741,19 @@ ncclResult_t ncclTopoComputePaths(struct ncclTopoSystem* system, struct ncclComm
   // Set direct paths to NICs.
   for (int n=0; n<system->nodes[NET].count; n++) {
     NCCLCHECK(ncclTopoSetPaths(system->nodes[NET].nodes+n, system));
+  }
+
+  // A fused HSW topology can contain GPUs without a path to any local NIC.
+  // Allocate the path array so later GPU->NET checks can safely see PATH_DIS.
+  for (int g=0; g<system->nodes[GPU].count; g++) {
+    struct ncclTopoNode* gpu = system->nodes[GPU].nodes + g;
+    if (gpu->paths[NET] == NULL && system->nodes[NET].count > 0) {
+      NCCLCHECK(ncclCalloc(gpu->paths+NET, system->nodes[NET].count));
+      for (int n=0; n<system->nodes[NET].count; n++) {
+        gpu->paths[NET][n].type = PATH_DIS;
+        gpu->paths[NET][n].bw = -1;
+      }
+    }
   }
 
   // Set direct paths to NVSwitches.

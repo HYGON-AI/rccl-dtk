@@ -578,11 +578,12 @@ ncclResult_t ncclTopoAddCpu(struct ncclXmlNode* xmlCpu, struct ncclTopoSystem* s
 }
 
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
-ncclResult_t ncclTopoAddXGMI(struct ncclXmlNode* node, struct ncclTopoSystem* system, const char* parentBusId) {
+ncclResult_t ncclTopoAddXGMI(struct ncclXmlNode* node, struct ncclTopoSystem* system, const char* parentBusId, int systemId) {
   if (strcmp(node->name, "xgmi") == 0) {
     struct ncclTopoNode* gpu = NULL;
     int64_t pBusId;
     NCCLCHECK(busIdToInt64(parentBusId, &pBusId));
+    pBusId = NCCL_TOPO_ID(systemId, pBusId);
     NCCLCHECK(ncclTopoGetNode(system, &gpu, GPU, pBusId));
     if (gpu == NULL) {
       WARN("Add XGMI error : could not find GPU %lx\n", pBusId);
@@ -601,7 +602,7 @@ ncclResult_t ncclTopoAddXGMI(struct ncclXmlNode* node, struct ncclTopoSystem* sy
       NCCLCHECK(xmlGetAttrStr(node, "target", &target));
       int64_t busId;
       NCCLCHECK(busIdToInt64(target, &busId));
-      NCCLCHECK(ncclTopoGetNode(system, &remote, GPU, busId));
+      NCCLCHECK(ncclTopoGetNode(system, &remote, GPU, NCCL_TOPO_ID(systemId, busId)));
     } else if (targetType == CPU) {
       // NVL connection to the local CPU
       NCCLCHECK(findLocalCpu(gpu, &remote, NULL));
@@ -620,10 +621,13 @@ ncclResult_t ncclTopoAddXGMI(struct ncclXmlNode* node, struct ncclTopoSystem* sy
       }
     }
   } else {
+    if (strcmp(node->name, "cpu") == 0) {
+      NCCLCHECK(ncclGetSystemId(system, node, &systemId));
+    }
     const char* busId;
     NCCLCHECK(xmlGetAttr(node, "busid", &busId));
     for (int s=0; s<node->nSubs; s++) {
-      NCCLCHECK(ncclTopoAddXGMI(node->subs[s], system, busId ? busId : parentBusId));
+      NCCLCHECK(ncclTopoAddXGMI(node->subs[s], system, busId ? busId : parentBusId, systemId));
     }
   }
   return ncclSuccess;
@@ -770,7 +774,7 @@ ncclResult_t ncclTopoGetSystemFromXml(struct ncclXml* xml, struct ncclTopoSystem
   }
 
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
-  NCCLCHECK(ncclTopoAddXGMI(topNode, *topoSystem, NULL));
+  NCCLCHECK(ncclTopoAddXGMI(topNode, *topoSystem, NULL, 0));
 #else
   NCCLCHECK(ncclTopoAddNvLinks(topNode, *topoSystem, NULL, 0));
 #endif
@@ -1406,6 +1410,9 @@ ncclResult_t ncclTopoGetSharedState(ncclTopoNetState** state, const char* name, 
 
 ncclResult_t ncclTopoGetSystem(struct ncclComm* comm, struct ncclTopoSystem** system, const char* dumpXmlFile) {
   ncclResult_t ret = ncclSuccess;
+  int* usedNodes = NULL;
+  int localUsedNodes = 0, maxUsedNodes = 0, sumUsedNodes = 0;
+  size_t xmlBytes = 0;
   struct ncclXml* xml;
   char* mem = NULL;
   int* localRanks = NULL;
@@ -1477,6 +1484,12 @@ ncclResult_t ncclTopoGetSystem(struct ncclComm* comm, struct ncclTopoSystem** sy
     nLocalRanks = comm->clique.size;
     localRank = comm->cliqueRank;
     localRanks = comm->clique.ranks;
+  }else if((comm->isSuperNode)){
+    // Treat the complete HSW domain as one logical topology, like an MNNVL clique.
+    nLocalRanks = comm->nRanks;
+    localRank = comm->rank;
+    NCCLCHECKGOTO(ncclCalloc(&localRanks, comm->nRanks), ret, fail);
+    for (int i = 0; i < comm->nRanks; i++) localRanks[i] = i;
   } else {
     // Intra-node fusion.  Much of the comm is not initialized yet at this point so we need to do our own calculations.
     NCCLCHECKGOTO(ncclCalloc(&localRanks, comm->nRanks), ret, fail);
@@ -1488,24 +1501,38 @@ ncclResult_t ncclTopoGetSystem(struct ncclComm* comm, struct ncclTopoSystem** sy
       }
     }
   }
-  NCCLCHECKGOTO(ncclCalloc(&mem, nLocalRanks * xmlMemSize(NCCL_TOPO_XML_MAX_NODES)), ret, fail);
-  rankXml = (struct ncclXml*)(mem+xmlMemSize(NCCL_TOPO_XML_MAX_NODES)*localRank);
-  memcpy(rankXml, xml, xmlMemSize(NCCL_TOPO_XML_MAX_NODES));
+  //两次bootstrapIntraNodeAllGather，先交换每个rank的xml节点数，遍历出xml节点的最大值和总和，再根据此计算需要传输的数据大小和xml融合区域的大小
+  localUsedNodes = xml->maxIndex;
+  NCCLCHECKGOTO(ncclCalloc(&usedNodes, nLocalRanks), ret, fail);
+  usedNodes[localRank] = localUsedNodes;
+  NCCLCHECKGOTO(bootstrapIntraNodeAllGather(comm->bootstrap, localRanks, localRank, nLocalRanks, usedNodes, sizeof(*usedNodes)), ret, fail);
+  for (int i = 0; i < nLocalRanks; i++) {
+    //遍历取xml节点的最大值
+    if (usedNodes[i] > maxUsedNodes) maxUsedNodes = usedNodes[i];
+    //记录xml节点的和
+    sumUsedNodes += usedNodes[i];
+  }
+  xmlBytes = xmlMemSize(maxUsedNodes);
+  NCCLCHECKGOTO(ncclCalloc(&mem, nLocalRanks * xmlBytes), ret, fail);
+  rankXml = (struct ncclXml*)(mem + xmlBytes * localRank);
+  memcpy(rankXml, xml, xmlMemSize(localUsedNodes));
+  //将容量字段更新为发送槽位实际可容纳的节点数
+  rankXml->maxNodes = maxUsedNodes;
   NCCLCHECKGOTO(ncclTopoConvertXml(rankXml, (uintptr_t)xml->nodes, 1), ret, fail);
   // nLocalRanks can't actually be 0, or we wouldn't be running at all...
   // coverity[divide_by_zero]
-  NCCLCHECKGOTO(bootstrapIntraNodeAllGather(comm->bootstrap, localRanks, localRank, nLocalRanks, mem, xmlMemSize(NCCL_TOPO_XML_MAX_NODES)), ret, fail);
-  if (comm->MNNVL) {
+  NCCLCHECKGOTO(bootstrapIntraNodeAllGather(comm->bootstrap, localRanks, localRank, nLocalRanks, mem, (int)xmlBytes), ret, fail);
+  if (comm->MNNVL || comm->isSuperNode) {
     // Ensure that we have enough room when fusing topos from multiple nodes.
     free(xml);
     xml = NULL;
-    NCCLCHECKGOTO(xmlAlloc(&xml, nLocalRanks*NCCL_TOPO_XML_MAX_NODES), ret, fail);
+    NCCLCHECKGOTO(xmlAlloc(&xml, sumUsedNodes), ret, fail);
   } else {
     // In the intra-node case there's no need to enlarge the topo xml.
     xml->maxIndex = 0;
   }
   for (int i = 0; i < nLocalRanks; i++) {
-    struct ncclXml* peerXml = (struct ncclXml*)(mem+xmlMemSize(NCCL_TOPO_XML_MAX_NODES)*i);
+    struct ncclXml* peerXml = (struct ncclXml*)(mem + xmlBytes * i);
     NCCLCHECKGOTO(ncclTopoConvertXml(peerXml, (uintptr_t)peerXml->nodes, 0), ret, fail);
     NCCLCHECKGOTO(ncclTopoFuseXml(xml, peerXml), ret, fail);
   }
@@ -1520,6 +1547,7 @@ ncclResult_t ncclTopoGetSystem(struct ncclComm* comm, struct ncclTopoSystem** sy
 
 exit:
   if (!comm->MNNVL && localRanks) free(localRanks);
+  free(usedNodes);
   if (mem) free(mem);
   free(xml);
   return ret;
