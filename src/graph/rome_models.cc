@@ -2671,6 +2671,7 @@ bool isAllHylink(struct ncclTopoSystem* system){
     for (int cudaDev2=0; cudaDev2<ngpus; cudaDev2++) {
       if (cudaDev1 == cudaDev2) continue;
       struct ncclTopoLink* link = node->paths[GPU][cudaDev2].list[0];
+      if (link == nullptr) return false;
       struct ncclTopoNode* remNode = link->remNode;
       if (node->paths[GPU][cudaDev2].count == 1 && remNode->type != NVS) {
         if (link->type != LINK_NVL) return false;
@@ -2694,6 +2695,7 @@ bool isHylinkMixPCIe(struct ncclTopoSystem* system){
     for (int cudaDev2=0; cudaDev2<ngpus; cudaDev2++) {
       if (cudaDev1 == cudaDev2) continue;
       struct ncclTopoLink* link = node->paths[GPU][cudaDev2].list[0];
+      if (link == nullptr) return false;
       struct ncclTopoNode* remNode = link->remNode;
       if (node->paths[GPU][cudaDev2].count == 1 && remNode->type != NVS) {
         if (link->type == LINK_NVL) {
@@ -2756,6 +2758,7 @@ bool isHSW(struct ncclTopoSystem* system){
     for (int cudaDev2=0; cudaDev2<ngpus; cudaDev2++) {
       if (cudaDev1 == cudaDev2) continue;
       struct ncclTopoLink* link = node->paths[GPU][cudaDev2].list[0];
+      if (link == nullptr) return false;
       struct ncclTopoNode* remNode = link->remNode;
       if (node->paths[GPU][cudaDev2].count == 2 && remNode->type == NVS) {
         if (link->type != LINK_NVL) return false;
