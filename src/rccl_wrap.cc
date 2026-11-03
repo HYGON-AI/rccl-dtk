@@ -492,7 +492,7 @@ int parseFirmwareVersionImpl() {
   uint64_t fw_version = -1;
 
   // using rocm-smi APIs for now to query MEC FW version
-  // will switch to amd-smi APIs soon
+  // will switch to the system-management APIs soon
   if (rocm_smi_getFirmwareVersion(0, &fw_version) != ncclSuccess) return -1;
 
   return fw_version;

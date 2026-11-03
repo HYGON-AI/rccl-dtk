@@ -1814,7 +1814,7 @@ static bool permuteGpuIds(int *g, int n, int last, struct rcclRomeModel* ref, st
         if (ref->gpuNuma[i] != topo->gpuNuma[g[i]]) break;
       if (i < ref->nGpus) return false;
     }
-    // match XGMI connection
+    // match HSL connection
     for (i = 0; i < ref->nGpus; i++) {
       for (j = 0; j < ref->nGpus; j++) {
         if (ref->connMatrix[i*ref->nGpus+j] != topo->connMatrix[g[i]*ref->nGpus+g[j]]) break;
@@ -1977,7 +1977,7 @@ ncclResult_t parseA2a8P(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
         memcpy(all_gpu_permutations+offset+NUMA_GPUS, &numa_gpu_permutations[1][b][0], NUMA_GPUS*sizeof(int));
       }
     }
-    // match all GPUs' XGMI connection
+    // match all GPUs' HSL connection
     int p;
     for (p = 0; p < TOTAL_PERMUTE_COUNT; p++) {
       g8 = all_gpu_permutations+p*NUMA_CPUS*NUMA_GPUS;
@@ -2362,7 +2362,7 @@ ncclResult_t parse1H16P(struct ncclTopoSystem* system, struct ncclTopoGraph* gra
         }
       }
     }
-    // match all GPUs' XGMI connection
+    // match all GPUs' HSL connection
     int p;
     for (p = 0; p < TOTAL_PERMUTE_COUNT; p++) {
       g16 = all_gpu_permutations+p*NUMA_CPUS*NUMA_GPUS;

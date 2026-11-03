@@ -217,7 +217,7 @@ do {                                                                           \
 static void setupPeers(uint32_t *info, bool* is_xgmi) {
   int deviceCnt, dev;
 
-  // is_xgmi indicates all link are one hop XGMI
+  // The link flag indicates that all links are one-hop HSL connections.
   *is_xgmi = 1;
   HIPCHECK(hipGetDeviceCount(&deviceCnt));
   HIPCHECK(hipGetDevice(&dev));
@@ -362,7 +362,7 @@ bool cmdOptionExists(char** begin, char** end, const std::string& option) {
 }
 
 
-static const char* link_type_name[] = {"HT", "QPI", "PCIE", "IB", "XGMI"};
+static const char* link_type_name[] = {"HT", "QPI", "PCIE", "IB", "HSL"};
 
 
 int main(int argc,char* argv[])
