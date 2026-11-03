@@ -136,12 +136,12 @@ static void printNodePaths(struct ncclTopoSystem* system, struct ncclTopoNode* n
       for (int i=0; i<node->paths[t][n].count; i++) {
         struct ncclTopoLink* link = node->paths[t][n].list[i];
         struct ncclTopoNode* remNode = link->remNode;
-        snprintf(line+offset, linesize-offset, "--%s(%g)->%s/%lx-%lx", topoLinkTypeStr[link->type], link->bw, topoNodeTypeStr[remNode->type], NCCL_TOPO_ID_SYSTEM_ID(remNode->id), NCCL_TOPO_ID_LOCAL_ID(remNode->id));
+        snprintf(line+offset, linesize-offset, "--%s(%g)->%s/%lx-%lx", topoLinkTypeDisplayStr[link->type], link->bw, topoNodeTypeStr[remNode->type], NCCL_TOPO_ID_SYSTEM_ID(remNode->id), NCCL_TOPO_ID_LOCAL_ID(remNode->id));
         offset = strlen(line);
       }
       INFO(NCCL_GRAPH, "%s (%f)", line, node->paths[t][n].bw);
 #else
-      snprintf(line+offset, linesize-offset, "%s/%lx-%lx (%d/%.1f/%s) ", topoNodeTypeStr[t], NCCL_TOPO_ID_SYSTEM_ID(system->nodes[t].nodes[n].id), NCCL_TOPO_ID_LOCAL_ID(system->nodes[t].nodes[n].id), node->paths[t][n].count, node->paths[t][n].bw, topoPathTypeStr[node->paths[t][n].type]);
+      snprintf(line+offset, linesize-offset, "%s/%lx-%lx (%d/%.1f/%s) ", topoNodeTypeStr[t], NCCL_TOPO_ID_SYSTEM_ID(system->nodes[t].nodes[n].id), NCCL_TOPO_ID_LOCAL_ID(system->nodes[t].nodes[n].id), node->paths[t][n].count, node->paths[t][n].bw, topoPathTypeDisplayStr[node->paths[t][n].type]);
       offset = strlen(line);
 #endif
     }
@@ -249,7 +249,7 @@ ncclResult_t ncclGetLevel(int* level, const char* disableEnv, const char* levelE
         }
       }
     }
-    if (l >= 0) INFO(NCCL_ALL, "%s set by environment to %s", levelEnv, topoPathTypeStr[l]);
+    if (l >= 0) INFO(NCCL_ALL, "%s set by environment to %s", levelEnv, topoPathTypeDisplayStr[l]);
     *level = l >= 0 ? l : -2;
   }
   return ncclSuccess;
@@ -799,7 +799,7 @@ ncclResult_t ncclTopoTrimSystem(struct ncclTopoSystem* system, struct ncclComm* 
   int remove = 1;
   int gdr = 1;
   bool allXgmi = true;
-  // detect if all GPUs are connected by XGMI
+  // detect if all GPUs are connected by HSL
   for (int i = 0; i < system->nodes[GPU].count && allXgmi; i++) {
     int cudaDev1 = system->nodes[GPU].nodes[i].gpu.dev;
     for (int j = 0; j < system->nodes[GPU].count && allXgmi; j++) {

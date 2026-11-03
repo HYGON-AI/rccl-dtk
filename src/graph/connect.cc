@@ -590,9 +590,9 @@ ncclResult_t connectRailOptimizedTrees(struct ncclComm* comm, int* treeToParent,
   INFO(NCCL_GRAPH, "Building rail-optimized trees for %d nodes", comm->nNodes);
 
   /* Rail-optimized trees are implemented in RCCL via a set of specially crafted complimentary
-     pairs of intra-node XGMI paths such that:
+     pairs of intra-node HSL paths such that:
         A) Complimentary pairs alternate their first two elements
-        B) Cover all the XGMI links exactly once
+        B) Cover all the HSL links exactly once
 
      E.g: For MI300X
        Path 1A 0 1 2 4 3 6 5 7       Path 2A 2 3 0 5 6 1 7 4

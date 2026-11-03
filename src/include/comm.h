@@ -21,9 +21,9 @@
 
 typedef enum {
   HCU_LINK_MODE_NON = 0,
-  HCU_LINK_MODE_XHCL_DIRECT = 1,    // DCU XHCL直连
-  HCU_LINK_MODE_XHCL_HYSWITCH = 2,  // DCU 连接hyswitch
-  HCU_LINK_MODE_ONLY_PCIE = 3,      // DCU 只有PCIe互联，无XHCL
+  HCU_LINK_MODE_XHCL_DIRECT = 1,    // HCU XHCL直连
+  HCU_LINK_MODE_XHCL_HYSWITCH = 2,  // HCU 连接hyswitch
+  HCU_LINK_MODE_ONLY_PCIE = 3,      // HCU 只有PCIe互联，无XHCL
 } HCU_LINK_MODE_TYPE;
 
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)

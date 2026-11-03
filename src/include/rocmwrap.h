@@ -104,9 +104,8 @@ static void* loadHsaLib() {
 
   void* hsaLib = dlopen(path, RTLD_LAZY);
   if (hsaLib == nullptr) {
-    const char *error = dlerror();  
-    fprintf(stderr, "Failed to find ROCm runtime library in %s (RCCL_ROCR_PATH=%s): %s\n",
-      path, ncclRocrPath, error ? error : "Unknown error");
+    (void)dlerror();
+    fprintf(stderr, "ROCr runtime library unavailable: check RCCL_ROCR_PATH and runtime installation.\n");
     return nullptr;
   }
 
@@ -152,6 +151,10 @@ DECLARE_ROCM_PFN_EXTERN(hsa_ext_rpc_memory_create);
 DECLARE_ROCM_PFN_EXTERN(hsa_ext_rpc_memory_attach);
 DECLARE_ROCM_PFN_EXTERN(hsa_ext_rpc_memory_detach);
 #endif
+
+// Log display policy only; does not detect the device vendor.
+// DTK builds always use neutral interface diagnostics.
+bool rcclHcuLogEnabled();
 
 ncclResult_t rocmLibraryInit(void);
 

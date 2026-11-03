@@ -37,7 +37,7 @@
 typedef enum _ARSMI_IO_LINK_TYPE {
   ARSMI_IOLINK_TYPE_UNDEFINED      = 0,          //!< unknown type.
   ARSMI_IOLINK_TYPE_PCIEXPRESS,                  //!< PCI Express
-  ARSMI_IOLINK_TYPE_XGMI,                        //!< XGMI
+  ARSMI_IOLINK_TYPE_XGMI,                        //!< HSL
   ARSMI_IOLINK_TYPE_NUMIOLINKTYPES,              //!< Number of IO Link types
   ARSMI_IOLINK_TYPE_SIZE           = 0xFFFFFFFF  //!< Max of IO Link types
 } ARSMI_IO_LINK_TYPE;

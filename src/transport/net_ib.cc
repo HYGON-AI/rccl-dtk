@@ -634,7 +634,7 @@ ncclResult_t ncclIbGdrSupport() {
 
   if (moduleLoaded == -1) {
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
-    // Check for `memory_peers` directory containing `amdkfd/version`
+    // Check for the GPU peer-memory driver version file under `memory_peers`.
     // This `memory_peers` directory is created by NIC-GPU driver interaction
     // On Linux kernel 5.15.0 (e.g. Ubuntu 22.04), `memory_peers` is created under `/sys/kernel/mm/`
     // However, on newer kernels like Ubuntu 24.04.1 (Linux kernel 6.8.0) or Ubuntu 22.04.4 HWE (Linux kernel 6.5.0),

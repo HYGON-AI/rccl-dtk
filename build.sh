@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
 # 设置默认值
 ROCM_PATH="${ROCM_PATH:-}"
 BUILD_TESTS="ON"

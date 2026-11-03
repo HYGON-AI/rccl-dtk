@@ -47,15 +47,15 @@ enum cpuType{
   totalCpuTypes
 };
 
-enum dcuType{
-  dcu0 = 0, Vega20 = 0,
-  dcu1 = 1, Device66a1 = 1,
-  dcu2 = 2, Z100SM = 2,
-  dcu3 = 3, DCUK100_AI = 3,
-  dcu4 = 4, DCUBW200 = 4,
-  totalDcuTypes
+enum hcuType{
+  hcu0 = 0, Vega20 = 0,
+  hcu1 = 1, Device66a1 = 1,
+  hcu2 = 2, Z100SM = 2,
+  hcu3 = 3, HCUK100_AI = 3,
+  hcu4 = 4, HCUBW200 = 4,
+  totalHcuTypes
 };
-const static float baseBW[totalDcuTypes*totalCpuTypes][ncclAlgCount*TOTAL_SIZE_TYPES] = {
+const static float baseBW[totalHcuTypes*totalCpuTypes][ncclAlgCount*TOTAL_SIZE_TYPES] = {
   {0.0127,0.2597,2.0400,7.6004,9.0011,9.0971, 
    0.0162,0.2740,3.8894,14.6500,17.7845,18.1698,
    0.0201,0.2695,3.3141,11.7356,13.3372,13.5014,
@@ -188,7 +188,7 @@ std::string getCPUName() {
   return name;
 }
 
-std::string getDCUName() {
+std::string getHCUName() {
   hipDeviceProp_t props;
   if (hipSuccess != hipGetDeviceProperties(&props, 0)){
     printf("[ ERROR    ] Can not get device name!\n");
@@ -199,7 +199,7 @@ std::string getDCUName() {
   return name;
 }
 
-std::string getDCUArch() {
+std::string getHCUArch() {
   hipDeviceProp_t props;
   if (hipSuccess != hipGetDeviceProperties(&props, 0)){
     printf("[ ERROR    ] Can not get device arch!\n");
@@ -225,23 +225,23 @@ float getBaseBW(ncclAlg algType,int bytes){
   }else if (cpuName.find("hygon") != std::string::npos){
     cpuType = cpuHygon;
   }else {
-    printf("[ ERROR    ] Get unknown cpu name: %s\n", cpuName.c_str());
+    printf("[ ERROR    ] Unsupported cpu model.\n");
     return -1.0;
   }
   int iter=(log2Custom(bytes)-10)/4;//Calculate the number of rounds based on size   log2Custom(MIN_BYTES_SIZE)=10 log2Custom(SIZE_MULTS) = 4 
-  std::string dcuName = getDCUName();
-  if (std::regex_match(dcuName, std::regex(".*vega.*20.*"))){
-    return baseBW[dcu0 + cpuType][algType*TOTAL_SIZE_TYPES+iter];
-  }else if (std::regex_match(dcuName, std::regex(".*66a1.*"))){
-    return baseBW[dcu1 * totalCpuTypes + cpuType][algType*TOTAL_SIZE_TYPES+iter];
-  }else if (std::regex_match(dcuName, std::regex(".*z.*sm.*"))){
-    return baseBW[dcu2 * totalCpuTypes + cpuType][algType*TOTAL_SIZE_TYPES+iter];
-  }else if (std::regex_match(dcuName, std::regex(".*k.*ai.*"))){
-    return baseBW[dcu3 * totalCpuTypes + cpuType][algType*TOTAL_SIZE_TYPES+iter];
-  }else if (std::regex_match(dcuName, std::regex(".*bw200.*"))){
-    return baseBW[dcu4 * totalCpuTypes + cpuType][algType*TOTAL_SIZE_TYPES+iter];
+  std::string hcuName = getHCUName();
+  if (std::regex_match(hcuName, std::regex(".*vega.*20.*"))){
+    return baseBW[hcu0 + cpuType][algType*TOTAL_SIZE_TYPES+iter];
+  }else if (std::regex_match(hcuName, std::regex(".*66a1.*"))){
+    return baseBW[hcu1 * totalCpuTypes + cpuType][algType*TOTAL_SIZE_TYPES+iter];
+  }else if (std::regex_match(hcuName, std::regex(".*z.*sm.*"))){
+    return baseBW[hcu2 * totalCpuTypes + cpuType][algType*TOTAL_SIZE_TYPES+iter];
+  }else if (std::regex_match(hcuName, std::regex(".*k.*ai.*"))){
+    return baseBW[hcu3 * totalCpuTypes + cpuType][algType*TOTAL_SIZE_TYPES+iter];
+  }else if (std::regex_match(hcuName, std::regex(".*bw200.*"))){
+    return baseBW[hcu4 * totalCpuTypes + cpuType][algType*TOTAL_SIZE_TYPES+iter];
   }else{
-    printf("[ ERROR    ] Get unknown device name: %s\n", dcuName.c_str());
+    printf("[ ERROR    ] Unsupported device model.\n");
     return -1.0;
   }
 }
@@ -302,7 +302,7 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
-    std::string archName = getDCUArch();
+    std::string archName = getHCUArch();
 
     if (strcmp(archName.c_str(), "gfx936") != 0){
       // Set environment variables to achieve optimal performance
@@ -386,7 +386,7 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
-    std::string archName = getDCUArch();
+    std::string archName = getHCUArch();
 
     if (strcmp(archName.c_str(), "gfx936") != 0){
       // Set environment variables to achieve optimal performance
@@ -468,7 +468,7 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
-    std::string archName = getDCUArch();
+    std::string archName = getHCUArch();
 
     if (strcmp(archName.c_str(), "gfx936") != 0){
       // Set environment variables to achieve optimal performance
@@ -549,7 +549,7 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
-    std::string archName = getDCUArch();
+    std::string archName = getHCUArch();
 
     if (strcmp(archName.c_str(), "gfx936") != 0){
       // Set environment variables to achieve optimal performance
@@ -631,7 +631,7 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
-    std::string archName = getDCUArch();
+    std::string archName = getHCUArch();
 
     if (strcmp(archName.c_str(), "gfx936") != 0){
       // Set environment variables to achieve optimal performance
@@ -713,7 +713,7 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
-    std::string archName = getDCUArch();
+    std::string archName = getHCUArch();
 
     if (strcmp(archName.c_str(), "gfx936") != 0){
       // Set environment variables to achieve optimal performance
@@ -795,7 +795,7 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
-    std::string archName = getDCUArch();
+    std::string archName = getHCUArch();
 
     if (strcmp(archName.c_str(), "gfx936") != 0){
       // Set environment variables to achieve optimal performance
@@ -877,7 +877,7 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
-    std::string archName = getDCUArch();
+    std::string archName = getHCUArch();
 
     if (strcmp(archName.c_str(), "gfx936") != 0){
       // Set environment variables to achieve optimal performance
@@ -969,7 +969,7 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
-    std::string archName = getDCUArch();
+    std::string archName = getHCUArch();
     
     if (strcmp(archName.c_str(), "gfx936") != 0){
       // Set environment variables to achieve optimal performance
@@ -1051,7 +1051,7 @@ namespace RcclUnitTesting {
   {
     int iterNum = 30;
     int byteSize = GetParam();
-    std::string archName = getDCUArch();
+    std::string archName = getHCUArch();
 
     if (strcmp(archName.c_str(), "gfx936") != 0){
       // Set environment variables to achieve optimal performance

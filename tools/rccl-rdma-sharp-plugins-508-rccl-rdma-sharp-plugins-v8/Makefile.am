@@ -12,4 +12,4 @@ EXTRA_DIST += include
 EXTRA_DIST += debian
 EXTRA_DIST += rccl-rdma-sharp-plugins.spec
 
-# CFLAGS = -Wall -D__HIP_PLATFORM_AMD__
+# Optional CFLAGS: enable warnings and select the HIP platform macro.

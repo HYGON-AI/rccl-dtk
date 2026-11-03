@@ -57,6 +57,7 @@ extern const char* topoNodeTypeStr[];
 #define LINK_SYS 7
 #define LINK_NET 8
 extern const char* topoLinkTypeStr[];
+extern const char* topoLinkTypeDisplayStr[];
 
 // Local (myself)
 #define PATH_LOC 0
@@ -88,6 +89,7 @@ extern const char* topoLinkTypeStr[];
 // Disconnected
 #define PATH_DIS 9
 extern const char* topoPathTypeStr[];
+extern const char* topoPathTypeDisplayStr[];
 
 struct ncclTopoNode;
 struct ncclTopoLink {
@@ -259,7 +261,7 @@ static ncclResult_t ncclTopoIdToNetDev(struct ncclTopoSystem* system, int64_t id
   return ncclInternalError;
 }
 
-// Returns XGMI speed in GB/s
+// Returns HSL speed in GB/s
 static float ncclTopoXGMISpeed(const char* gcn) {
   if (IsArchMatch(gcn, "gfx90a"))
     return MI200_XGMI_WIDTH;

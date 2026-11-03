@@ -44,7 +44,7 @@
 #include "rccl_vars.h"
 #include "hip_rocm_version_info.h"
 //#include "clique/CliqueManager.h"
-//#include <hsa/hsa_ext_amd.h>
+// The optional HSA extension header is not included here.
 #ifdef ENABLE_MSCCLPP
 #include "mscclpp/mscclpp_nccl.h"
 #endif
@@ -983,7 +983,7 @@ ncclResult_t getLocalHsaAgent(struct ncclComm* comm)
   }
 }
 
-/* 获取本节点DCU的互联方式 */
+/* 获取本节点HCU的互联方式 */
 ncclResult_t getHwLinkTopo(struct ncclComm* comm)
 {
   uint32_t deviceCnt = 0;
@@ -1412,7 +1412,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   bool allXgmi, hasPeerAccess;
   allXgmi = true;
   hasPeerAccess = true;
-  // Check that all the GPUs have peer access to one another and are XGMI connected
+  // Check that all the GPUs have peer access to one another and are HSL connected
   for (int i = 0; i < nranks && hasPeerAccess; i++) {
     int cudaDev1 = comm->peerInfo[i].cudaDev;
     for (int j = 0; j < nranks; j++) {

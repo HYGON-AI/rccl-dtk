@@ -25,9 +25,13 @@
 const char* topoNodeTypeStr[] = { "GPU", "PCI", "NVS", "CPU", "NIC", "NET" };
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
 const char* topoLinkTypeStr[] = { "LOC", "XGMI", "",    "PCI",    "",    "",    "", "SYS", "NET" };
+const char* topoLinkTypeDisplayStr[] = { "LOC", "HSL", "",    "PCI",    "",    "",    "", "SYS", "NET" };
 const char* topoPathTypeStr[] = { "LOC", "XGMI", "NVB", "PIX", "PXB", "PXN", "PHB", "SYS", "NET","DIS" };
+const char* topoPathTypeDisplayStr[] = { "LOC", "HSL", "NVB", "PIX", "PXB", "PXN", "PHB", "SYS", "NET","DIS" };
 #else
+const char* topoLinkTypeDisplayStr[] = { "LOC", "NVL", "",    "PCI",    "",    "",    "", "SYS", "NET" };
 const char* topoLinkTypeStr[] = { "LOC", "NVL", "",    "PCI",    "",    "",    "", "SYS", "NET" };
+const char* topoPathTypeDisplayStr[] = { "LOC", "NVL", "NVB", "PIX", "PXB", "PXN", "PHB", "SYS", "NET", "DIS" };
 const char* topoPathTypeStr[] = { "LOC", "NVL", "NVB", "PIX", "PXB", "PXN", "PHB", "SYS", "NET", "DIS" };
 #endif
 
@@ -287,10 +291,10 @@ static ncclResult_t ncclTopoPrintRec(struct ncclTopoNode* node, struct ncclTopoN
   for (int l=0; l<node->nlinks; l++) {
     struct ncclTopoLink* link = node->links+l;
     if (link->type == LINK_LOC) {
-      sprintf(line+offset, "+ %s[%2.1f] - %s/%lX", topoLinkTypeStr[link->type], link->bw, topoNodeTypeStr[link->remNode->type], link->remNode->id);
+      sprintf(line+offset, "+ %s[%2.1f] - %s/%lX", topoLinkTypeDisplayStr[link->type], link->bw, topoNodeTypeStr[link->remNode->type], link->remNode->id);
       INFO(NCCL_GRAPH, "%s", line);
     } else if (link->type != LINK_PCI || link->remNode != prevNode) {
-      sprintf(line+offset, "+ %s[%2.1f] - ", topoLinkTypeStr[link->type], link->bw);
+      sprintf(line+offset, "+ %s[%2.1f] - ", topoLinkTypeDisplayStr[link->type], link->bw);
       int nextOffset = strlen(line);
       if (link->type == LINK_PCI) {
         NCCLCHECK(ncclTopoPrintRec(link->remNode, node, line, nextOffset));
@@ -567,7 +571,7 @@ ncclResult_t ncclTopoAddXGMI(struct ncclXmlNode* node, struct ncclTopoSystem* sy
     NCCLCHECK(busIdToInt64(parentBusId, &pBusId));
     NCCLCHECK(ncclTopoGetNode(system, &gpu, GPU, pBusId));
     if (gpu == NULL) {
-      WARN("Add XGMI error : could not find GPU %lx\n", pBusId);
+      WARN("Add HSL error : could not find GPU %lx\n", pBusId);
       return ncclInternalError;
     }
     int count;
