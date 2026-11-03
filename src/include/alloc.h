@@ -316,7 +316,7 @@ static inline ncclResult_t ncclCuMemAlloc(void **ptr, CUmemGenericAllocationHand
   ncclResult_t result = ncclSuccess;
   size_t mappedSize = 0;
   NCCLCHECK(ncclCuMemAllocNoTrack(ptr, handlep, type, size, &mappedSize, xdp));
-  //目前hsa_amd_vmem_maph存在问题，会导致缓冲区特定偏移位置残留非零值。这里必须清零，否则会出现脏数据。
+  //目前HSA虚拟内存映射接口存在问题，会导致缓冲区特定偏移位置残留非零值。这里必须清零，否则会出现脏数据。
   NCCLCHECK(ncclCudaMemset((uint8_t*)*ptr, 0, size));
   int cudaDev;
   CUdevice currentDev;

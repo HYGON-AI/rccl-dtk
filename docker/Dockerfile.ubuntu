@@ -11,7 +11,7 @@ ARG RCCL_BRANCH=develop
 ARG RCCL_TESTS_REPO=https://github.com/ROCm/rccl-tests
 ARG RCCL_TESTS_BRANCH=develop
 
-## AMD GPU Targets
+## HCU GPU Targets
 ARG GPU_TARGETS=gfx942
 
 ## creating scratch space

@@ -825,7 +825,7 @@ TEST_F(XmlTest, TestCompleteTopologyLoading) {
         EXPECT_NE(gpuNode, nullptr);
 
         if (gpuNode) {
-          // Verify NVLINK/XGMI nodes were loaded (ncclTopoXmlLoadNvlink)
+          // Verify NVLINK/HSL nodes were loaded (ncclTopoXmlLoadNvlink)
           struct ncclXmlNode *xgmiNode = nullptr;
           EXPECT_EQ(xmlGetSub(gpuNode, "xgmi", &xgmiNode), ncclSuccess);
           EXPECT_NE(xgmiNode, nullptr);
@@ -896,7 +896,7 @@ TEST_F(XmlTest, TestGpuLoading_WithInterconnects) {
     EXPECT_EQ(xmlGetAttr(gpuNode, "gcn", &gcn), ncclSuccess);
     EXPECT_STREQ(gcn, "gfx942");
 
-    // Verify XGMI (NVLINK equivalent on AMD)
+    // Verify HSL (NVLINK equivalent on HCU)
     struct ncclXmlNode *xgmiNode = nullptr;
     EXPECT_EQ(xmlGetSub(gpuNode, "xgmi", &xgmiNode), ncclSuccess);
     EXPECT_NE(xgmiNode, nullptr);
@@ -1123,7 +1123,7 @@ TEST_F(XmlTest, TestPciLinkLoading_MultipleLinks) {
   free(xml);
 }
 
-// Test XGMI loading
+// Test HSL loading
 TEST_F(XmlTest, TestXgmiLoading_ComplexTopology) {
   std::string xgmiXml = R"(<system version="2">
   <cpu numaid="0">
