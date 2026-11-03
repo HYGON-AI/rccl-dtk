@@ -349,7 +349,7 @@ def get_ibstat():
 	return summary, result
 
 
-# Get AMDKFD (GPU Driver version)
+# Get the GPU kernel driver version
 def get_gpu_driver():
 	result = run_cli_command('dkms status | grep "amdgpu"')
 	if result.stdout:
@@ -612,7 +612,7 @@ def get_config(root_enabled):
 	ib_stat_summary, ib_stat_result = get_ibstat()
 	ib_stat_status = status_check(ib_stat_summary, ib_stat_result)
 
-	# AMD GPU driver version
+	# HCU GPU driver version
 	GPU_driver_summary, GPU_driver_result = get_gpu_driver()
 	pattern = r"^.*amdgpu.*$"
 	matching_lines = re.findall(pattern, GPU_driver_result.stdout, flags=re.MULTILINE)
@@ -620,6 +620,9 @@ def get_config(root_enabled):
 		GPU_driver_status = "WARN"
 	else:
 		GPU_driver_status = status_check(GPU_driver_summary, GPU_driver_result)
+
+	# The detected module name is only relabeled in the displayed driver field.
+	GPU_driver_summary = GPU_driver_summary.replace("amdgpu", "hcu")
 
 	# DKMS module info
 	dkms_summary, dkms_result = get_dkms_status()
@@ -688,7 +691,7 @@ def get_config(root_enabled):
 		f"Device GUIDs Information{' ':<6}| {GUIDs_status:<13} | {GUIDs_summary}\n"
 		f"IB device Information{' ':<9}| {ib_dev_status:<13} | {ib_dev_summary}\n"
 		f"IBstat Information{' ':<12}| {ib_stat_status:<13} | {ib_stat_summary}\n"
-		f"AMD GPU driver version{' ':<8}| {GPU_driver_status:<13} | {GPU_driver_summary}\n"
+		f"HCU GPU driver version{' ':<8}| {GPU_driver_status:<13} | {GPU_driver_summary}\n"
 		f"DKMS Module Information{' ':<7}| {dkms_status:<13} | {dkms_summary}\n"
 		f"IP Address Information{' ':<8}| {ip_addr_status:<13} | {ip_addr_summary}\n"
 		f"IP Link Information{' ':<11}| {ip_link_status:<13} | {ip_link_summary}\n"
@@ -714,7 +717,7 @@ def get_config(root_enabled):
 		f"{centered_title('RCCL Version', details_width, '=')}\n"
 		f"{rccl_version_result.stdout.strip()}{rccl_version_result.stderr.strip()}\n\n"
 		f"{centered_title('Vram Information', details_width, '=')}\n"
-		f"{Vram_result.stdout.strip()}{Vram_result.stderr.strip()}\n\n"
+		f"{Vram_result.stdout.strip().replace('AMD', 'HCU')}{'Memory query failed.' if Vram_result.stderr.strip() else ''}\n\n"
 		f"{centered_title('UCX Version', details_width, '=')}\n"
 		f"{ucx_result.stdout.strip()}{ucx_result.stderr.strip()}\n\n"
 		f"{centered_title('MPI Version', details_width, '=')}\n"
@@ -738,9 +741,9 @@ def get_config(root_enabled):
 		f"{centered_title('IBstat', details_width, '=')}\n"
 		f"{ib_stat_result.stdout.strip()}{ib_stat_result.stderr.strip()}\n\n"
 		f"{centered_title('GPU Driver Version', details_width, '=')}\n"
-		f"{GPU_driver_result.stdout.strip()}{GPU_driver_result.stderr.strip()}\n\n"
+		f"{GPU_driver_result.stdout.strip().replace('amdgpu', 'hcu')}{'Driver query failed.' if GPU_driver_result.stderr.strip() else ''}\n\n"
 		f"{centered_title('DKMS Status', details_width, '=')}\n"
-		f"{dkms_result.stdout.strip()}{dkms_result.stderr.strip()}\n\n"
+		f"{dkms_result.stdout.strip().replace('amdgpu', 'hcu')}{'Module query failed.' if dkms_result.stderr.strip() else ''}\n\n"
 		f"{centered_title('IP Addr', details_width, '=')}\n"
 		f"{ip_addr_result.stdout.strip()}{ip_addr_result.stderr.strip()}\n\n"
 		f"{centered_title('IP Link', details_width, '=')}\n"
@@ -750,7 +753,7 @@ def get_config(root_enabled):
 		f"{centered_title('ACS', details_width, '=')}\n"
 		f"{acs_result.stdout.strip()}{acs_result.stderr.strip()}\n\n"
 		f"{centered_title('ROCm Information', details_width, '=')}\n"
-		f"{rocm_info_result.stdout.strip()}{rocm_info_result.stderr.strip()}\n\n"
+		f"{rocm_info_result.stdout.strip().replace('AMD', 'HCU').replace('XGMI', 'HSL')}{'Runtime information query failed.' if rocm_info_result.stderr.strip() else ''}\n\n"
 		f"{centered_title('File Descriptor Limits', details_width, '=')}\n"
 		f"{limits_result.stdout.strip()}{limits_result.stderr.strip()}\n\n"
 	)

@@ -126,3 +126,40 @@ See:
 
     src/include/latency_profiler
     src/misc/latency_profiler
+
+
+HYGON original contributions — file-header review 2026-10-30
+_______________________________________________________________
+
+Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+License for the original contributions identified below: BSD-3-Clause.
+
+This notice covers only the original HYGON additions or rewrites described
+below. It does not claim ownership of upstream or third-party portions,
+including code copied into new local paths. Existing per-file copyright
+and license notices remain in force; the original file headers are retained.
+This section does not relicense a complete file or an external component.
+
+Review range (inclusive start): e7900614bf85bcaa9c5a94167ac355c2b1de6830
+Reviewed source tip: 392edc5c22542c5a646ecbe18cc82b92c0ed9559
+Policy: BSD-3-Clause H2; retain file headers and register original contributions.
+H3 changes (parameters, build configuration, logs, small conditions and
+mechanical adaptations) are not covered by this copyright registration.
+
+- src/enqueue.cc: P2P task scheduling, batching and execution-plan control.
+- src/graph/rome_models.cc: Hygon link detection and topology-model construction/selection.
+- src/graph/search.cc: GPU/NIC balancing and network-plane-aware device selection.
+- src/graph/topo.cc: GPU/NIC balancing or fused supernode topology collection.
+- src/graph/xml.cc: Link enumeration and topology/environment mapping construction.
+- src/include/alloc.h: Tracked/untracked memory allocation, release and clearing control.
+- src/init.cc: Device/link discovery and communication-resource initialization control.
+- src/misc/api_trace.cc: Runtime profiler registration-library loading and failure handling.
+- src/misc/rocm_smi_wrap.cc: Runtime SMI symbol resolution and fallback initialization control.
+- src/misc/rocmwrap.cc: HSA agent discovery, memory-pool selection and PCIe-linked allocation.
+- src/transport.cc: Mixed-NIC validation, PSM stream-pool and transport-selection control.
+- src/transport/net_ib.cc: RoCE source-port list parsing, validation and connection selection.
+- src/transport/p2p.cc: Link-channel selection and shared IPC/PCIe buffer management.
+- src/transport/psm_net.cc: Original SM-free transfer/registration/resource flow derived from net.cc.
+- src/transport/psm_p2p.cc: Original SM-free IPC/PCIe copy/synchronization flow derived from p2p.cc.
+
+All upstream notices above and in the listed files are retained.

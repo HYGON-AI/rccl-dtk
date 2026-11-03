@@ -8,6 +8,7 @@
 
 #include "comm.h"
 #include "net.h"
+#include "rocmwrap.h"
 #include "graph.h"
 #include "proxy.h"
 #include "collectives.h"
@@ -978,7 +979,7 @@ static ncclResult_t sendProxyConnect(struct ncclProxyConnection* connection, str
         HSACHECK(hsa_amd_portable_export_dmabuf((const void*)resources->buffers[p], resources->buffSizes[p], &dmabuf_fd, &offset));
         NCCLCHECK(proxyState->ncclNet->regMrDmaBuf(resources->netSendComm, resources->buffers[p], resources->buffSizes[p], type, offset, dmabuf_fd, &resources->mhandles[p]));
         (void)close(dmabuf_fd);
-        TRACE(NCCL_INIT|NCCL_NET, "hsa_amd_portable_export_dmabuf buffer %p size %d handle %x offset %ld",
+        TRACE(NCCL_INIT|NCCL_NET, "DMA-BUF export buffer %p size %d handle %x offset %ld",
           (const void*)resources->buffers[p], resources->buffSizes[p], dmabuf_fd, offset);
       } else // FALL-THROUGH to nv_peermem GDR path
 #endif
@@ -1183,7 +1184,7 @@ static ncclResult_t recvProxyConnect(struct ncclProxyConnection* connection, str
         HSACHECK(hsa_amd_portable_export_dmabuf((const void*)resources->buffers[p], resources->buffSizes[p], &dmabuf_fd, &offset));
         NCCLCHECK(proxyState->ncclNet->regMrDmaBuf(resources->netRecvComm, resources->buffers[p], resources->buffSizes[p], type, offset, dmabuf_fd, &resources->mhandles[p]));
         (void)close(dmabuf_fd);
-        TRACE(NCCL_INIT|NCCL_NET, "hsa_amd_portable_export_dmabuf buffer %p size %d handle %x offset %ld",
+        TRACE(NCCL_INIT|NCCL_NET, "DMA-BUF export buffer %p size %d handle %x offset %ld",
           (const void*)resources->buffers[p], resources->buffSizes[p], dmabuf_fd, offset);
       } else // FALL-THROUGH to nv_peermem GDR path
 #endif
