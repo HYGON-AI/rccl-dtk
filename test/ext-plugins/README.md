@@ -59,7 +59,7 @@ Before running the tests, you need to build the RCCL CSV tuner plugin library. T
 #### Step 1: Navigate to the plugin directory
 
 ```bash
-cd rccl/ext-tuner/example
+cd rccl-dtk/ext-tuner/example
 ```
 
 #### Step 2: Build the plugin
