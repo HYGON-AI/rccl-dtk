@@ -195,7 +195,7 @@ else()
 endif()
 message("-- ROCM_VERSION: ${ROCM_VERSION_MAJOR}.${ROCM_VERSION_MINOR}.${ROCM_VERSION_PATCH}")
 
-### Required for checking HIP device symbols when building with amdclang++
+### Required for checking HIP device symbols with the HIP Clang compiler
 set(CMAKE_REQUIRED_LIBRARIES hip::device)
 
 ### Check for hipDeviceMallocUncached support
@@ -263,7 +263,7 @@ if(BUILD_BFD)
   if (HAVE_BFD)
     message(STATUS "-- Found BFD support")
 
-    ### Required for checking HIP device symbols when building with amdclang++
+    ### Required for checking HIP device symbols with the HIP Clang compiler
     set(CMAKE_REQUIRED_LIBRARIES hip::device)
 
     # Check for specific BFD feature support
@@ -301,7 +301,7 @@ if(BUILD_BFD)
   endif()
 endif()
 
-# Check for --amdgpu-kernarg-preload-count
+# Check for kernel-argument preload support
 check_cxx_compiler_flag("-mllvm --amdgpu-kernarg-preload-count=16" HAVE_KERNARG_PRELOAD)
 if (HAVE_KERNARG_PRELOAD)
   message(STATUS "Kernarg preloading to SGPR enabled")
@@ -923,7 +923,7 @@ rocm_set_soversion(rccl "1.0")
 
 if(NOT BUILD_SHARED_LIBS)
   # To create a static lib with `-fgpu-rdc`, you need `--emit-static-lib` and `--hip-link`.
-  # You also need to invoke amdclang++ again to trigger GPU code generation.
+  # Invoke the HIP compiler again to trigger GPU code generation.
   set(static_link_flags
     ${CXXFLAGS}
     --hip-link
@@ -948,7 +948,7 @@ if(NOT BUILD_SHARED_LIBS)
   endforeach()
   list(JOIN static_link_flags " " flags_str)
 
-  # Invoking amdclang++ this way will produce a static archive, so just override ARCHIVE_CREATE.
+  # Invoking the HIP compiler this way produces a static archive; override ARCHIVE_CREATE.
   set(CMAKE_CXX_ARCHIVE_CREATE "<CMAKE_CXX_COMPILER> ${flags_str} -o <TARGET> <OBJECTS>")
 endif()
 

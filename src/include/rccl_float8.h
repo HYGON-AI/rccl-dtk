@@ -40,7 +40,7 @@ typedef struct
     uint8_t data;
 } rccl_bfloat8;
 
-// __cplusplus < 201103L || (!defined(__HIP_PLATFORM_AMD__) && !defined(__HIPCC__))
+// Fallback FP8 storage for older C++ standards or non-HIP builds.
 #elif HIP_VERSION >= 60300000
 
 #include <hip/hip_fp8.h>

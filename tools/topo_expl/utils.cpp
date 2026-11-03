@@ -893,7 +893,7 @@ ncclResult_t initTransportsRank_1(struct ncclComm* comm, struct allGatherInfo *a
   bool allXgmi, hasPeerAccess;
   allXgmi = true;
   hasPeerAccess = true;
-  // Check that all the GPUs have peer access to one another and are XGMI connected
+  // Check that all the GPUs have peer access to one another and are HSL connected
   for (int i = 0; i < nranks && hasPeerAccess; i++) {
     int cudaDev1 = comm->peerInfo[i].cudaDev;
     for (int j = 0; j < nranks; j++) {

@@ -14,11 +14,13 @@
 #include <dlfcn.h>
 #include <sys/utsname.h>
 #include <fstream>
+#include <cstring>
 
 #define DECLARE_ROCM_PFN(symbol) PFN_##symbol pfn_##symbol = nullptr
 
 DECLARE_ROCM_PFN(hsa_amd_portable_export_dmabuf); // DMA-BUF support
 NCCL_PARAM(DmaBufEnable, "DMABUF_ENABLE", 0);
+// DTK interface diagnostics stay neutral even when a legacy log override is set.
 /* ROCr Driver functions loaded with dlsym() */
 DECLARE_ROCM_PFN(hsa_init);
 DECLARE_ROCM_PFN(hsa_system_get_info);
@@ -41,28 +43,45 @@ bool ncclCudaLaunchBlocking = false;
 static pthread_once_t initOnceControl = PTHREAD_ONCE_INIT;
 static ncclResult_t initResult;
 
-#define LOAD_HSA_SYM(handle, symbol, funcptr) do {         \
-  void** cast = (void**)&funcptr;                          \
-  void* tmp = dlsym(handle, symbol);                       \
-  if (tmp == NULL) {                                       \
-    WARN("dlvsym failed on %s - %s ", symbol, dlerror());  \
-    goto error;                                            \
-  }                                                        \
-  *cast = tmp;                                             \
+bool rcclHcuLogEnabled() {
+  return true;
+}
+
+#define LOAD_HSA_SYM(handle, symbol, funcptr) do {                          \
+  void** cast = (void**)&funcptr;                                           \
+  void* tmp = dlsym(handle, symbol);                                        \
+  if (tmp == NULL) {                                                       \
+    (void)dlerror();                                     \
+    if (std::strstr(symbol, "_amd_") != nullptr) {                \
+      WARN("ROCr runtime API unavailable: required memory-management entry point is missing."); \
+    } else {                                                              \
+      WARN("ROCr runtime API unavailable: required entry point %s is missing.", symbol);                 \
+    }                                                                     \
+    goto error;                                                           \
+  }                                                                       \
+  *cast = tmp;                                                            \
 } while (0)
 
-#define CALL_FUNC(func, ...)                               \
-  do {                                                     \
-    if (func == NULL) {                                    \
-        WARN("Fail to call null func " #func);             \
-        return ncclInternalError;                          \
-    }                                                      \
-    hsa_status_t status = func(__VA_ARGS__);               \
-    if (status != HSA_STATUS_SUCCESS) {                    \
-      WARN("Fail to call " #func " status %d", status);    \
-      return ncclInternalError;                            \
-    }                                                      \
-    return ncclSuccess;                                    \
+#define CALL_FUNC(func, ...)                                              \
+  do {                                                                    \
+    if (func == NULL) {                                                    \
+      if (std::strstr(#func, "_amd_") != nullptr) {               \
+        WARN("ROCr memory-management API unavailable: function pointer is null."); \
+      } else {                                                            \
+        WARN("Fail to call null func " #func);                             \
+      }                                                                   \
+      return ncclInternalError;                                           \
+    }                                                                     \
+    hsa_status_t status = func(__VA_ARGS__);                                \
+    if (status != HSA_STATUS_SUCCESS) {                                    \
+      if (std::strstr(#func, "_amd_") != nullptr) {               \
+        WARN("ROCr memory-management API call failed with status %d", status); \
+      } else {                                                            \
+        WARN("Fail to call " #func " status %d", status);                  \
+      }                                                                   \
+      return ncclInternalError;                                           \
+    }                                                                     \
+    return ncclSuccess;                                                    \
   } while (0)
 
 bool isEnvEnabled(const char* envName) {
@@ -135,7 +154,7 @@ static void initOnceFunc() {
   else {
     pfn_hsa_amd_portable_export_dmabuf = (PFN_hsa_amd_portable_export_dmabuf) dlsym(getHsaLib(), "hsa_amd_portable_export_dmabuf");
     if (pfn_hsa_amd_portable_export_dmabuf == NULL) {
-      WARN("Failed to load ROCr missing symbol hsa_amd_portable_export_dmabuf");
+      WARN("DMA-BUF export unavailable: required ROCr runtime API is missing.");
       goto error;
     }
     else {
