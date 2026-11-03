@@ -490,7 +490,7 @@ ncclResult_t ncclTopoCompareGraphs(struct ncclTopoSystem* system, struct ncclTop
   // 3. Less hops
   if (graph->pattern == refGraph->pattern && graph->crossNic == refGraph->crossNic && graph->nHops < refGraph->nHops) *copy = 1;
 
-  // 4. Prefer graph with more XGMI connections
+  // 4. Prefer graph with more HSL connections
   if (graph->nChannels == refGraph->nChannels
     && ncclTopoCountXGMI(system, refGraph) < ncclTopoCountXGMI(system, graph)) *copy = 1;
   return ncclSuccess;
@@ -1191,7 +1191,7 @@ search:
   if (pass == 1) {
     // First pass, we don't have a solution yet ; try other options
 
-    // Try having different channels (except when going through AMD CPUs)
+    // Try different channels unless the CPU-vendor/path restriction below applies.
     if (tmpGraph.sameChannels == 1 &&
         !(cpuArch == NCCL_TOPO_CPU_ARCH_X86 && cpuVendor == NCCL_TOPO_CPU_VENDOR_AMD && tmpGraph.typeIntra == PATH_SYS)) {
       tmpGraph.sameChannels = 0;
@@ -1288,7 +1288,7 @@ done:
 }
 
 ncclResult_t ncclTopoPrintGraph(struct ncclTopoSystem* system, struct ncclTopoGraph* graph) {
-  INFO(NCCL_GRAPH, "Pattern %d, crossNic %d, nChannels %d, bw %f/%f, type %s/%s, sameChannels %d", graph->pattern, graph->crossNic, graph->nChannels, graph->bwIntra, graph->bwInter, topoPathTypeStr[graph->typeIntra], topoPathTypeStr[graph->typeInter], graph->sameChannels);
+  INFO(NCCL_GRAPH, "Pattern %d, crossNic %d, nChannels %d, bw %f/%f, type %s/%s, sameChannels %d", graph->pattern, graph->crossNic, graph->nChannels, graph->bwIntra, graph->bwInter, topoPathTypeDisplayStr[graph->typeIntra], topoPathTypeDisplayStr[graph->typeInter], graph->sameChannels);
   int ngpus = system->nodes[GPU].count;
 
   char line[1024];

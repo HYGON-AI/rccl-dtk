@@ -118,9 +118,8 @@ static void* loadHsaLib() {
 
   void* hsaLib = dlopen(path, RTLD_LAZY);
   if (hsaLib == nullptr) {
-    const char *error = dlerror();  
-    fprintf(stderr, "Failed to find ROCm runtime library in %s (RCCL_ROCR_PATH=%s): %s\n",
-      path, ncclRocrPath, error ? error : "Unknown error");
+    (void)dlerror();
+    fprintf(stderr, "ROCr runtime library unavailable: check RCCL_ROCR_PATH and runtime installation.\n");
     return nullptr;
   }
 
@@ -167,6 +166,10 @@ extern int ncclCuMemHostEnable();
 
 // Handle type used for cuMemCreate()
 extern CUmemAllocationHandleType ncclCuMemHandleType;
+
+// Log display policy only; does not detect the device vendor.
+// DTK builds always use neutral interface diagnostics.
+bool rcclHcuLogEnabled();
 
 ncclResult_t rocmLibraryInit(void);
 

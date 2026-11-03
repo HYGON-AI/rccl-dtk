@@ -57,7 +57,7 @@
 #include "git_version.h"
 #include "rccl_vars.h"
 #include "hip_rocm_version_info.h"
-//#include <hsa/hsa_ext_amd.h>
+// The optional HSA extension header is not included here.
 #ifdef ENABLE_MSCCLPP
 #include "mscclpp/mscclpp_nccl.h"
 #endif
@@ -185,7 +185,7 @@ ncclResult_t checkHsaEnvSetting() {
   CUDACHECK(hipRuntimeGetVersion(&hipRuntimeVersion));
 
   // using rocm-smi API to query FW version, instead of parsing CLI output
-  // will switch to amd-smi API soon
+  // will switch to the system-management API soon
   const int firmwareVersion = parseFirmwareVersion();
 
   hipDeviceProp_t devProp;
@@ -1748,7 +1748,7 @@ ncclResult_t getLocalHsaAgent(struct ncclComm* comm)
   }
 }
 
-/* 获取本节点DCU的互联方式 */
+/* 获取本节点HCU的互联方式 */
 ncclResult_t getHwLinkTopo(struct ncclComm* comm)
 {
   uint32_t deviceCnt = 0;
@@ -2246,7 +2246,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
   bool allXgmi, hasPeerAccess;
   allXgmi = true;
   hasPeerAccess = true;
-  // Check that all the GPUs have peer access to one another and are XGMI connected
+  // Check that all the GPUs have peer access to one another and are HSL connected
   for (int i = 0; i < nranks && hasPeerAccess; i++) {
     int cudaDev1 = comm->peerInfo[i].cudaDev;
     for (int j = 0; j < nranks; j++) {
@@ -2354,7 +2354,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, struct ncclComm* p
         allGather3Data[rank].nc = 4;
     }
   }
-  // For single node communicators that do not uses the full xgmi links per gpu, i.e., nranks < 8
+  // For single node communicators that do not uses the full hsl links per gpu, i.e., nranks < 8
   // Inflate the nChannels a bit to achieve higher b/w. 
   if (IsArchMatch(comm->topo->nodes[GPU].nodes[idx].gpu.gcn, "gfx950")) {
     if (nranks == 2 && nNodes == 1){

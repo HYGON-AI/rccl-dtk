@@ -493,9 +493,9 @@ static struct tuningModel rcclTuningModel[] = {
 // LL128 max BW per channel
 static const double llMaxBws[][3] = {
   /* Volta-N1/Intel-N2/Intel-N4) */ {39.0, 39.0, 20.4},
-  /* Ampere-N1/AMD-N2/AMD-N4) */ {87.7, 22.5 /*avg of ring & tree*/, 19.0},
-  /* Hopper-N1/AMD-N2/AMD-N4) */ {141.0, 45.0 /*avg of ring & tree*/, 35.0},
-  /* Blackwell-N1/AMD-N2/AMD-N4) */ {2*141.0, 2*45.0 /*avg of ring & tree*/, 2*35.0},
+  /* Ampere GPU baseline (N1/N2/N4) */ {87.7, 22.5 /*avg of ring & tree*/, 19.0},
+  /* Hopper GPU baseline (N1/N2/N4) */ {141.0, 45.0 /*avg of ring & tree*/, 35.0},
+  /* Blackwell GPU baseline (N1/N2/N4) */ {2*141.0, 2*45.0 /*avg of ring & tree*/, 2*35.0},
 };
 
 static const double perChMaxRingLL128Bws[][3] = {
