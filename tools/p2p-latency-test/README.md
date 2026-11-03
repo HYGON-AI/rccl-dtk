@@ -8,7 +8,7 @@ To build and run these tests, follow these steps:
 2. Run `bash build_and_run.sh`
 
 ```bash
-cd rccl/tools/p2p-latency-test
+cd rccl-dtk/tools/p2p-latency-test
 bash build_and_run.sh
 ```
 

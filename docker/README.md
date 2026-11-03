@@ -1,5 +1,9 @@
 # Using RCCL/RCCL-Tests in a docker environment
 
+These are inherited upstream ROCm container examples. The Dockerfile defaults select `ROCm/rccl` on `develop`. For the HCU **`dtk-26.10`** branch, follow the [native DTK build instructions](../README.md#manual-build).
+
+Run the container example commands below from the `docker` directory of the checkout (`rccl-dtk/docker`).
+
 ## Docker build
 
 Assuming you have docker installed on your system:
