@@ -30,6 +30,3 @@ Red: Connections over shared memory or without GPU RDMA
 
 ## Example Output
 ![image info](./4_nodes.log.png)
-
-## Copyright
-All source code and accompanying documentation are copyright (c) 2019-2020 Advanced Micro Devices, Inc. All rights reserved.
