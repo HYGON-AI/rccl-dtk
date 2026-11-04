@@ -138,9 +138,3 @@ HCU adaptations, modifications, and original contributions by Hygon Information 
 **Modified by Hygon Information Technology Co., Ltd.** Original copyright notices and license terms from the upstream RCCL project are retained.
 
 See [LICENSE.txt](LICENSE.txt) and [NOTICES.txt](NOTICES.txt) for details.
-
-## Copyright
-
-All source code and accompanying documentation is copyright (c) 2015-2025, NVIDIA CORPORATION. All rights reserved.
-
-All modifications are copyright (c) 2019-2025 Advanced Micro Devices, Inc. All rights reserved.
