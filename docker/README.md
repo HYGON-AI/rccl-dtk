@@ -39,8 +39,3 @@ $ mpirun --allow-run-as-root -np 8 --mca pml ucx --mca btl ^openib -x NCCL_DEBUG
 ```
 
 For more information on rccl-tests options, refer to the [Usage](https://github.com/ROCm/rccl-tests#usage) section of rccl-tests.
-
-
-## Copyright
-
-All modifications are copyright (c) 2019-2025 Advanced Micro Devices, Inc. All rights reserved.
