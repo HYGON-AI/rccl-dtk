@@ -1,0 +1,97 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-FileCopyrightText: Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+
+name: pr-test
+
+# 从目标分支读取工作流，测试 PR 与最新 dtk-26.10.1 的合并结果。
+# 首次添加本文件需合入 dtk-26.10.1 后才会处理后续 PR 事件。
+on:
+  pull_request_target:
+    branches: [dtk-26.10.1]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Build and Test (DTK26.10.1)
+    # 外部 fork 仅在维护者打 ready-hcu 标签的当次运行。
+    # 后续新提交需复核、移除并重新打标签。
+    if: >-
+      (github.event.action != 'labeled' || github.event.label.name == 'ready-hcu') &&
+      (github.event.pull_request.head.repo.full_name == github.repository ||
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) ||
+       github.event.action == 'labeled')
+    concurrency:
+      group: rccl-pr-test-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: self-hosted
+    # RCCL 全量编译耗时较长。
+    timeout-minutes: 360
+    container:
+      # 已包含 DTK，无需额外安装。
+      image: ${{ vars.BASE_IMAGE_ROCK_DTK26101_PY312 }}
+      volumes:
+        - /opt/hyhal/:/opt/hyhal/:ro
+      options: >-
+        --device=/dev/kfd
+        --device=/dev/dri
+        --group-add=video
+        --shm-size=16g
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Merge PR into latest base
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          auth=$(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 -w0)
+          git -c http.extraheader="AUTHORIZATION: basic ${auth}" \
+            fetch --no-tags origin "pull/${PR_NUMBER}/head"
+          # 确认拉取的是本次事件对应的提交，避免执行随后推送的未审核代码。
+          test "$(git rev-parse FETCH_HEAD)" = "${PR_HEAD_SHA}"
+          git -c user.name='RCCL CI' -c user.email='ci@localhost' \
+            merge --no-ff --no-edit "${PR_HEAD_SHA}"
+
+      - name: Fetch googletest
+        run: |
+          set -euo pipefail
+          # .gitmodules 中 googletest 为相对地址（../googletest），在本仓库下不可用，
+          # 因此直接从上游克隆，并尽量检出仓库中记录的子模块提交以保证可复现。
+          gtest_sha=$(git ls-tree HEAD tools/googletest | awk '{print $3}')
+          rm -rf tools/googletest
+          git clone https://github.com/google/googletest.git ./tools/googletest
+          if [[ -n "${gtest_sha}" ]]; then
+            git -C tools/googletest checkout --detach "${gtest_sha}" \
+              || echo "::warning::googletest commit ${gtest_sha} not found upstream, using default branch"
+          fi
+          git -C tools/googletest log -1 --oneline
+
+      - name: Build and run unit tests
+        run: |
+          set -eo pipefail
+          source /opt/dtk/env.sh
+          set -u
+          export ROCM_PATH="${ROCM_PATH:-/opt/dtk}"
+          # build_ut.sh 依次完成 googletest 构建、RCCL 构建和 rccl-UnitTests 运行。
+          bash ./build_ut.sh
+
+      - name: Clean build directory
+        if: always()
+        run: |
+          # 在容器退出前清理可能归 root 所有的构建文件。
+          rm -rf -- "${GITHUB_WORKSPACE:?}/build" "${GITHUB_WORKSPACE:?}/tools/googletest"

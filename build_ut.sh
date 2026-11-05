@@ -75,7 +75,7 @@ if [[ ! -d "${ROCM_PATH}" ]]; then
 fi
 
 if [[ ! -d "${GTEST_SRC_DIR}" || -z "$(find "${GTEST_SRC_DIR}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
-  echo '请通过命令`git submodule update --init ./tools/googletest/`加载 googletest 源码后进行编译'
+  echo '请通过命令`git clone https://github.com/google/googletest.git ./tools/googletest`加载 googletest 源码后进行编译'
   exit 1
 fi
 
@@ -219,3 +219,17 @@ case "${STAGE}" in
 esac
 
 echo "Build done."
+
+export LD_LIBRARY_PATH="${RCCL_BUILD_DIR}:${LD_LIBRARY_PATH:-}"
+
+echo "RCCL build artifacts are in: ${RCCL_BUILD_DIR}"
+if [[ "${BUILD_TESTS}" == "ON" ]]; then
+  ut_bin="${RCCL_BUILD_DIR}/test/rccl-UnitTests"
+  echo "To run unit tests, execute: ${ut_bin}"
+  if [[ -f "${ut_bin}" && -x "${ut_bin}" ]]; then
+    echo "==> Running rccl-UnitTests"
+    "${ut_bin}"
+  else
+    echo "Warning: rccl-UnitTests binary not found or not executable: ${ut_bin}" >&2
+  fi
+fi
