@@ -30,10 +30,7 @@ jobs:
     concurrency:
       group: rccl-pr-test-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    # 必填项；只按 runner 组调度，不限定具体卡型。
-    runs-on:
-      group: ci-general
-      labels: [self-hosted, ci]
+    runs-on: self-hosted
     # RCCL 全量编译耗时较长。
     timeout-minutes: 360
     container:
