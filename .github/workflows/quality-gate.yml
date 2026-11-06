@@ -3,8 +3,6 @@ name: Quality Gate
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    branches:
-      - dtk-26.10.1
 
 permissions:
   contents: read
